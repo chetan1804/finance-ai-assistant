@@ -42,3 +42,8 @@ logs/
 # Secrets
 *.pem
 *.key
+
+# Local database
+data/*.db
+data/*.sqlite
+data/*.sqlite3
