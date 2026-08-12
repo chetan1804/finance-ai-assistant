@@ -47,3 +47,8 @@ logs/
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+
+# ML artifacts
+data/ml/*.joblib
+data/ml/*.pkl
+data/ml/*.pickle
