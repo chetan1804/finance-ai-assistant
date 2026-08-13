@@ -1,9 +1,138 @@
 from datetime import date
 from src.database.db import get_connection
+import sqlite3
 
 
 class FinanceService:
 
+    def __init__(self, database_path="data/finance.db"):
+        self.database_path = database_path
+        self.connection = sqlite3.connect(database_path)
+
+    def _connect(self):
+
+        return sqlite3.connect(
+            self.database_path
+        )
+
+    def total_income(self):
+
+        connection = self._connect()
+
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(amount), 0)
+            FROM transactions
+            WHERE transaction_type = 'income'
+        """)
+
+        result = cursor.fetchone()[0]
+
+        connection.close()
+
+        return result
+
+    def total_expenses(self):
+
+        connection = self._connect()
+
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(amount), 0)
+            FROM transactions
+            WHERE transaction_type = 'expense'
+        """)
+
+        result = cursor.fetchone()[0]
+
+        connection.close()
+
+        return result
+
+    def total_savings(self):
+
+        income = self.total_income()
+
+        expenses = self.total_expenses()
+
+        return income - expenses
+
+    def category_expenses(self, category: str) -> float:
+        cursor = self.connection.cursor()
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(t.amount), 0)
+            FROM transactions t
+            JOIN categories c
+                ON t.category_id = c.id
+            WHERE t.transaction_type = 'expense'
+            AND LOWER(c.name) = LOWER(?)
+        """, (category,))
+
+        result = cursor.fetchone()
+
+        return result[0]
+
+    def largest_expense(self):
+        cursor = self.connection.cursor()
+
+        cursor.execute("""
+            SELECT
+                t.amount,
+                t.merchant,
+                t.description,
+                t.transaction_date,
+                c.name AS category
+            FROM transactions t
+            LEFT JOIN categories c
+                ON t.category_id = c.id
+            WHERE t.transaction_type = 'expense'
+            ORDER BY t.amount DESC, t.transaction_date DESC
+            LIMIT 1
+        """)
+
+        return cursor.fetchone()
+    def merchant_expenses(
+        self,
+        merchant
+    ):
+
+        connection = self._connect()
+
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(amount), 0)
+            FROM transactions
+            WHERE transaction_type = 'expense'
+            AND LOWER(merchant) LIKE LOWER(?)
+        """, (f"%{merchant}%",))
+
+        result = cursor.fetchone()[0]
+
+        connection.close()
+
+        return result
+
+    def transaction_count(self):
+
+        connection = self._connect()
+
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM transactions
+        """)
+
+        result = cursor.fetchone()[0]
+
+        connection.close()
+
+        return result
+    
     def create_user(self, name, email, currency="INR"):
         connection = get_connection()
 
