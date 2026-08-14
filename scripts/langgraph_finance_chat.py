@@ -1,18 +1,9 @@
-from langchain_core.messages import HumanMessage
-
-from src.agent.graph import build_graph
+from src.agents.finance_agent import chat
 
 def main():
 
-    graph = build_graph()
-
+    user_id = 1
     thread_id = "user-1-session-1"
-
-    config = {
-        "configurable": {
-            "thread_id": thread_id
-        }
-    }
 
     print()
     print("=" * 60)
@@ -35,16 +26,10 @@ def main():
 
             try:
 
-                result = graph.invoke(
-                    {
-                        "messages": [
-                            HumanMessage(
-                                content=question
-                            )
-                        ],
-                        "user_id": 1
-                    },
-                    config=config
+                result = chat(
+                    user_id=user_id,
+                    thread_id=thread_id,
+                    question=question,
                 )
 
                 final_message = result[
