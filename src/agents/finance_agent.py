@@ -9,6 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from src.agents.context import parse_context
 from src.agents.finance_state import FinanceState
 from src.agents.personalization import format_money
+from src.agents.query import execute_finance_query
 from src.database.finance_service import FinanceService
 from src.llm.llm_client import get_llm
 
@@ -68,30 +69,13 @@ Rules:
 def finance_query(state: FinanceState):
     """Execute a user-scoped database query selected from validated context."""
     user_id = state["user_id"]
-    intent = state.get("intent")
-    category = state.get("category")
-    start_date = state.get("start_date")
-    end_date = state.get("end_date")
-
-    common = {
-        "user_id": user_id,
-        "start_date": start_date,
-        "end_date": end_date,
+    context = {
+        "intent": state.get("intent"),
+        "category": state.get("category"),
+        "start_date": state.get("start_date"),
+        "end_date": state.get("end_date"),
     }
-
-    if intent == "category_expense" and category:
-        result = finance_service.get_category_expenses(
-            category=category,
-            **common,
-        )
-    elif intent == "expense":
-        result = finance_service.get_total_expenses(**common)
-    elif intent == "income":
-        result = finance_service.get_total_income(**common)
-    elif intent == "balance":
-        result = finance_service.get_savings(**common)
-    else:
-        result = None
+    result = execute_finance_query(finance_service, user_id, context)
 
     return {
         "finance_result": result,

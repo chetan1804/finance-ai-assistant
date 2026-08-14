@@ -45,7 +45,7 @@ Build a finance assistant progressively using:
 
 ## Current Stage
 
-Step 15 — Personalization complete. Step 16 — Evaluation is next.
+Step 16 — Evaluation complete. Step 17 — Security is next.
 
 ## Step 15 Features
 
@@ -68,3 +68,21 @@ Run the automated tests with:
 ```bash
 python -m pytest -q
 ```
+
+## Evaluate the Finance Agent
+
+The offline evaluation uses a deterministic database and does not call an LLM:
+
+```bash
+python -m scripts.evaluate_finance_agent
+```
+
+The live evaluation measures intent/date extraction, query correctness, and
+whether responses contain the verified financial amount:
+
+```bash
+python -m scripts.evaluate_finance_agent --live
+```
+
+Use `--output <path>.json` to save case-level results and `--min-score 0.9`
+to set the quality gate. The default minimum score is 80%.

@@ -1,0 +1,94 @@
+[
+  {
+    "name": "total expenses in a date range",
+    "messages": [
+      "How much did I spend from 1 July 2026 to 31 July 2026?"
+    ],
+    "expected_context": {
+      "intent": "expense",
+      "category": null,
+      "start_date": "2026-07-01",
+      "end_date": "2026-07-31"
+    },
+    "expected_result": 1200.0
+  },
+  {
+    "name": "income in a date range",
+    "messages": [
+      "What was my income between 1 July 2026 and 31 July 2026?"
+    ],
+    "expected_context": {
+      "intent": "income",
+      "category": null,
+      "start_date": "2026-07-01",
+      "end_date": "2026-07-31"
+    },
+    "expected_result": 50000.0
+  },
+  {
+    "name": "category expense",
+    "messages": [
+      "How much did I spend on food in June 2026?"
+    ],
+    "expected_context": {
+      "intent": "category_expense",
+      "category": "food",
+      "start_date": "2026-06-01",
+      "end_date": "2026-06-30"
+    },
+    "expected_result": 800.0
+  },
+  {
+    "name": "savings in a date range",
+    "messages": [
+      "How much did I save in July 2026?"
+    ],
+    "expected_context": {
+      "intent": "balance",
+      "category": null,
+      "start_date": "2026-07-01",
+      "end_date": "2026-07-31"
+    },
+    "expected_result": 48800.0
+  },
+  {
+    "name": "conversation follow-up",
+    "messages": [
+      "How much did I spend in July 2026?",
+      "How much of that was on food?"
+    ],
+    "expected_context": {
+      "intent": "category_expense",
+      "category": "food",
+      "start_date": "2026-07-01",
+      "end_date": "2026-07-31"
+    },
+    "expected_result": 1200.0
+  },
+  {
+    "name": "period with no expenses",
+    "messages": [
+      "How much did I spend in September 2026?"
+    ],
+    "expected_context": {
+      "intent": "expense",
+      "category": null,
+      "start_date": "2026-09-01",
+      "end_date": "2026-09-30"
+    },
+    "expected_result": 0.0
+  },
+  {
+    "name": "unsupported request",
+    "messages": [
+      "Will the stock market rise tomorrow?"
+    ],
+    "expected_context": {
+      "intent": "unknown",
+      "category": null,
+      "start_date": null,
+      "end_date": null
+    },
+    "expected_result": null
+  }
+]
