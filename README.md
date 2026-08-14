@@ -45,7 +45,7 @@ Build a finance assistant progressively using:
 
 ## Current Stage
 
-Step 17 — Security complete. Step 18 — API is next.
+Step 18 — API complete. Step 19 — UI is next.
 
 ## Step 15 Features
 
@@ -95,3 +95,34 @@ the selected user, and the LLM treats conversation content as untrusted data.
 
 See [SECURITY.md](SECURITY.md) for implemented controls, production limitations,
 and secret-handling guidance.
+
+## Run the API
+
+Keep your existing `.env` and generate a bearer token mapped to an existing
+database user ID:
+
+```bash
+python -m scripts.configure_api_token --user-id 1
+```
+
+The command preserves existing provider keys and prints the new bearer token
+once. Store it securely.
+
+Start the local server:
+
+```bash
+python -m uvicorn src.api.app:create_app --factory --reload
+```
+
+Open `http://127.0.0.1:8000/docs` for the interactive API documentation. Send
+the configured token as `Authorization: Bearer <token>`.
+
+Available endpoints:
+
+- `GET /health`
+- `GET /api/v1/summary`
+- `GET /api/v1/transactions`
+- `POST /api/v1/transactions`
+- `GET /api/v1/preferences`
+- `PUT /api/v1/preferences`
+- `POST /api/v1/chat`

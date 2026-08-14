@@ -15,20 +15,28 @@
 - Financial responses are grounded in a server-side database result.
 - API keys and local databases are excluded from Git.
 - New databases include defensive `CHECK` constraints.
+- API user identity is derived from an opaque bearer token, never a request body.
+- Authenticated endpoints have per-user rate limiting.
+- API responses include no-store, MIME-sniffing, framing, and referrer controls.
+- Oversized request bodies are rejected before endpoint processing.
 
 ## Important limitations
 
-- The CLI accepts a user ID directly. It is not authentication. The API
-  milestone must derive the user ID from a verified session or access token and
-  must never trust a user ID supplied in a request body.
+- The CLI still accepts a user ID directly and is only suitable for trusted local
+  use. Network clients must use the authenticated API.
+- The current bearer-token map is appropriate for local development and small
+  internal deployments. Production should use a dedicated identity provider,
+  expiring credentials, rotation, and revocation.
 - Existing SQLite databases do not automatically receive new constraints.
   Production deployment requires versioned database migrations.
 - SQLite files are not encrypted at rest by this project. Production storage
   must provide disk/database encryption and restricted file permissions.
 - Provider prompts and transaction data are sent to the configured LLM service.
   Production use requires an approved data-processing and retention policy.
-- Rate limiting, secure HTTP headers, CSRF protection, and endpoint permissions
-  belong at the API boundary and are not provided by the current CLI.
+- The in-memory rate limiter is per process. A multi-worker deployment requires
+  a shared limiter such as Redis or an API gateway.
+- TLS termination, allowed-host enforcement, and trusted-proxy configuration
+  must be supplied by the production platform.
 
 ## Secret handling
 

@@ -914,10 +914,16 @@ class FinanceService:
 
     def get_transactions(
         self,
-        user_id: int
+        user_id: int,
+        limit: int = 100,
+        offset: int = 0,
     ):
 
         user_id = validate_positive_id(user_id, "user_id")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 500:
+            raise ValueError("limit must be an integer between 1 and 500.")
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be a non-negative integer.")
         connection = self._connection()
 
         try:
@@ -947,9 +953,13 @@ class FinanceService:
                 ORDER BY
                     t.transaction_date DESC,
                     t.id DESC
+
+                LIMIT ? OFFSET ?
                 """,
                 (
                     user_id,
+                    limit,
+                    offset,
                 )
             ).fetchall()
 
