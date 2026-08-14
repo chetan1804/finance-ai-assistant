@@ -1,6 +1,20 @@
 from datetime import date
 
 from src.database.db import get_connection
+from src.security.validation import (
+    validate_currency,
+    validate_date_range,
+    validate_email,
+    validate_finite_number,
+    validate_iso_date,
+    validate_money,
+    validate_positive_id,
+    validate_text,
+)
+
+
+VALID_TRANSACTION_TYPES = {"income", "expense", "transfer"}
+VALID_CATEGORY_TYPES = {"income", "expense"}
 
 
 class FinanceService:
@@ -25,6 +39,8 @@ class FinanceService:
         end_date=None,
     ) -> float:
 
+        user_id = validate_positive_id(user_id, "user_id")
+        start_date, end_date = validate_date_range(start_date, end_date)
         connection = self._connection()
 
         try:
@@ -87,6 +103,8 @@ class FinanceService:
         end_date=None,
     ) -> float:
 
+        user_id = validate_positive_id(user_id, "user_id")
+        start_date, end_date = validate_date_range(start_date, end_date)
         connection = self._connection()
 
         try:
@@ -175,6 +193,9 @@ class FinanceService:
         end_date=None,
     ) -> float:
 
+        user_id = validate_positive_id(user_id, "user_id")
+        category = validate_text(category, "category", max_length=100)
+        start_date, end_date = validate_date_range(start_date, end_date)
         connection = self._connection()
 
         try:
@@ -244,6 +265,7 @@ class FinanceService:
         user_id: int
     ):
 
+        user_id = validate_positive_id(user_id, "user_id")
         connection = self._connection()
 
         try:
@@ -287,6 +309,7 @@ class FinanceService:
         user_id: int
     ):
 
+        user_id = validate_positive_id(user_id, "user_id")
         connection = self._connection()
 
         try:
@@ -330,6 +353,8 @@ class FinanceService:
         merchant: str
     ) -> float:
 
+        user_id = validate_positive_id(user_id, "user_id")
+        merchant = validate_text(merchant, "merchant", max_length=255)
         connection = self._connection()
 
         try:
@@ -373,6 +398,7 @@ class FinanceService:
         user_id: int
     ) -> int:
 
+        user_id = validate_positive_id(user_id, "user_id")
         connection = self._connection()
 
         try:
@@ -409,6 +435,9 @@ class FinanceService:
         currency="INR"
     ):
 
+        name = validate_text(name, "name", max_length=100)
+        email = validate_email(email)
+        currency = validate_currency(currency)
         connection = self._connection()
 
         try:
@@ -451,6 +480,7 @@ class FinanceService:
 
     def get_user_preferences(self, user_id: int) -> dict:
         """Return personalized display settings with user-level defaults."""
+        user_id = validate_positive_id(user_id, "user_id")
         connection = self._connection()
 
         try:
@@ -493,6 +523,22 @@ class FinanceService:
         notification_enabled=True,
     ) -> dict:
         """Create or update the preferences used to personalize responses."""
+        user_id = validate_positive_id(user_id, "user_id")
+        language = validate_text(language, "language", max_length=50)
+        currency = validate_currency(currency)
+        monthly_income = validate_money(
+            monthly_income,
+            "monthly_income",
+            allow_none=True,
+        )
+        risk_preference = validate_text(
+            risk_preference,
+            "risk_preference",
+            max_length=50,
+            required=False,
+        )
+        if not isinstance(notification_enabled, bool):
+            raise ValueError("notification_enabled must be a boolean.")
         connection = self._connection()
 
         try:
@@ -555,6 +601,21 @@ class FinanceService:
         currency="INR"
     ):
 
+        user_id = validate_positive_id(user_id, "user_id")
+        name = validate_text(name, "name", max_length=100)
+        account_type = validate_text(
+            account_type,
+            "account_type",
+            max_length=50,
+        )
+        institution = validate_text(
+            institution,
+            "institution",
+            max_length=100,
+            required=False,
+        )
+        balance = validate_finite_number(balance, "balance")
+        currency = validate_currency(currency)
         connection = self._connection()
 
         try:
@@ -609,9 +670,35 @@ class FinanceService:
         parent_id=None
     ):
 
+        user_id = validate_positive_id(user_id, "user_id")
+        name = validate_text(name, "name", max_length=100)
+        category_type = validate_text(
+            category_type,
+            "category_type",
+            max_length=20,
+        ).casefold()
+        if category_type not in VALID_CATEGORY_TYPES:
+            raise ValueError("category_type must be income or expense.")
+        if parent_id is not None:
+            parent_id = validate_positive_id(parent_id, "parent_id")
         connection = self._connection()
 
         try:
+
+            if parent_id is not None:
+                parent = connection.execute(
+                    """
+                    SELECT 1
+                    FROM categories
+                    WHERE id = ?
+                    AND (user_id = ? OR user_id IS NULL)
+                    """,
+                    (parent_id, user_id),
+                ).fetchone()
+                if parent is None:
+                    raise ValueError(
+                        "The parent category is not available to the selected user."
+                    )
 
             cursor = connection.execute(
                 """
@@ -664,28 +751,50 @@ class FinanceService:
         notes=None
     ):
 
-        if amount <= 0:
-
+        user_id = validate_positive_id(user_id, "user_id")
+        account_id = validate_positive_id(account_id, "account_id")
+        if category_id is not None:
+            category_id = validate_positive_id(category_id, "category_id")
+        transaction_type = validate_text(
+            transaction_type,
+            "transaction_type",
+            max_length=20,
+        ).casefold()
+        if transaction_type not in VALID_TRANSACTION_TYPES:
             raise ValueError(
-                "Amount must be greater than zero."
+                "transaction_type must be income, expense, or transfer."
             )
-
-        if transaction_type not in [
-            "income",
-            "expense",
-            "transfer"
-        ]:
-
-            raise ValueError(
-                "Transaction type must be "
-                "income, expense or transfer."
-            )
+        amount = validate_money(amount)
+        description = validate_text(
+            description,
+            "description",
+            max_length=500,
+            required=False,
+        )
+        merchant = validate_text(
+            merchant,
+            "merchant",
+            max_length=255,
+            required=False,
+        )
+        notes = validate_text(
+            notes,
+            "notes",
+            max_length=1000,
+            required=False,
+            allow_newlines=True,
+        )
 
         if transaction_date is None:
 
             transaction_date = (
                 date.today().isoformat()
             )
+        transaction_date = validate_iso_date(
+            transaction_date,
+            "transaction_date",
+            allow_none=False,
+        )
 
         connection = self._connection()
 
@@ -808,6 +917,7 @@ class FinanceService:
         user_id: int
     ):
 
+        user_id = validate_positive_id(user_id, "user_id")
         connection = self._connection()
 
         try:

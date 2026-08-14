@@ -45,7 +45,7 @@ Build a finance assistant progressively using:
 
 ## Current Stage
 
-Step 16 — Evaluation complete. Step 17 — Security is next.
+Step 17 — Security complete. Step 18 — API is next.
 
 ## Step 15 Features
 
@@ -86,3 +86,12 @@ python -m scripts.evaluate_finance_agent --live
 
 Use `--output <path>.json` to save case-level results and `--min-score 0.9`
 to set the quality gate. The default minimum score is 80%.
+
+## Security
+
+The application validates financial values, dates, identifiers, profile fields,
+and chat input before use. Database operations are parameterized and scoped to
+the selected user, and the LLM treats conversation content as untrusted data.
+
+See [SECURITY.md](SECURITY.md) for implemented controls, production limitations,
+and secret-handling guidance.

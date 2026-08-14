@@ -23,7 +23,7 @@ def test_offline_evaluation_queries_are_exact(tmp_path):
     report = run_evaluation(cases, service, user_id, live=False)
 
     assert report["mode"] == "offline"
-    assert report["summary"]["case_count"] == 7
+    assert report["summary"]["case_count"] == 8
     assert report["summary"]["query_accuracy"] == 1.0
     assert report["summary"]["context_accuracy"] is None
     assert report["summary"]["grounding_accuracy"] is None
