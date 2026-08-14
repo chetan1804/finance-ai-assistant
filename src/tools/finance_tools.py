@@ -3,86 +3,128 @@ from langchain_core.tools import tool
 from src.services.finance_service import FinanceService
 
 
+# =========================================================
+# CURRENT APPLICATION USER
+# =========================================================
+
+CURRENT_USER_ID = 2
+
+
+# =========================================================
+# FINANCE SERVICE
+# =========================================================
+
 finance_service = FinanceService()
 
+
+# =========================================================
+# TOTAL INCOME
+# =========================================================
 
 @tool
 def get_total_income() -> float:
     """
-    Get the total income recorded
-    in the finance database.
+    Get the total income for the current user.
     """
 
-    return finance_service.total_income()
+    return finance_service.get_total_income(
+        CURRENT_USER_ID
+    )
 
+
+# =========================================================
+# TOTAL EXPENSES
+# =========================================================
 
 @tool
 def get_total_expenses() -> float:
     """
-    Get the total expenses recorded
-    in the finance database.
+    Get the total expenses for the current user.
     """
 
-    return finance_service.total_expenses()
+    return finance_service.get_total_expenses(
+        CURRENT_USER_ID
+    )
 
+
+# =========================================================
+# TOTAL SAVINGS
+# =========================================================
 
 @tool
 def get_total_savings() -> float:
     """
-    Calculate total savings as income
-    minus expenses.
+    Get the total savings for the current user.
     """
 
-    return finance_service.total_savings()
+    return finance_service.get_savings(
+        CURRENT_USER_ID
+    )
 
+
+# =========================================================
+# CATEGORY EXPENSES
+# =========================================================
 
 @tool
 def get_category_expenses(
     category: str
 ) -> float:
     """
-    Get total expenses for a specific
-    financial category.
-
-    Examples:
-    Food
-    Transport
-    Shopping
-    Bills
-    Entertainment
+    Get expenses for a specific category
+    for the current user.
     """
 
-    return finance_service.category_expenses(
+    return finance_service.get_category_expenses(
+        CURRENT_USER_ID,
         category
     )
 
 
+# =========================================================
+# LARGEST EXPENSE
+# =========================================================
+
 @tool
 def get_largest_expense():
     """
-    Get the largest expense transaction.
+    Get the largest expense for the current user.
     """
 
-    return finance_service.largest_expense()
+    return finance_service.get_largest_expense(
+        CURRENT_USER_ID
+    )
 
+
+# =========================================================
+# MERCHANT EXPENSES
+# =========================================================
 
 @tool
 def get_merchant_expenses(
     merchant: str
 ) -> float:
     """
-    Get total expenses for a specific merchant.
+    Get expenses for a specific merchant
+    for the current user.
     """
 
-    return finance_service.merchant_expenses(
+    return finance_service.get_merchant_expenses(
+        CURRENT_USER_ID,
         merchant
     )
 
 
+# =========================================================
+# TRANSACTION COUNT
+# =========================================================
+
 @tool
 def get_transaction_count() -> int:
     """
-    Get the total number of transactions.
+    Get the transaction count for the current user.
     """
 
-    return finance_service.transaction_count()
+    return finance_service.get_transaction_count(
+        CURRENT_USER_ID
+    )

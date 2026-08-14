@@ -9,49 +9,82 @@ class FinanceService:
         self.database_path = database_path
 
     def _connection(self):
+        """
+        Get a database connection.
+
+        The actual connection management is handled
+        by src.database.db.get_connection().
+        """
         return get_connection()
 
     # =========================================================
     # BASIC FINANCE QUERIES
     # =========================================================
 
-    def total_income(self):
+    def get_total_income(self, user_id: int) -> float:
+        """
+        Get total income for a specific user.
+        """
+
         connection = self._connection()
 
         try:
-            cursor = connection.cursor()
-
-            cursor.execute("""
+            result = connection.execute(
+                """
                 SELECT COALESCE(SUM(amount), 0)
                 FROM transactions
-                WHERE transaction_type = 'income'
-            """)
+                WHERE user_id = ?
+                AND transaction_type = 'income'
+                """,
+                (user_id,)
+            ).fetchone()
 
-            return cursor.fetchone()[0]
+            return float(result[0])
 
         finally:
             connection.close()
 
-    def total_expenses(self):
+    # =========================================================
+    # TOTAL EXPENSES
+    # =========================================================
+
+    def get_total_expenses(self, user_id: int) -> float:
+        """
+        Get total expenses for a specific user.
+        """
+
         connection = self._connection()
 
         try:
-            cursor = connection.cursor()
-
-            cursor.execute("""
+            result = connection.execute(
+                """
                 SELECT COALESCE(SUM(amount), 0)
                 FROM transactions
-                WHERE transaction_type = 'expense'
-            """)
+                WHERE user_id = ?
+                AND transaction_type = 'expense'
+                """,
+                (user_id,)
+            ).fetchone()
 
-            return cursor.fetchone()[0]
+            return float(result[0])
 
         finally:
             connection.close()
 
-    def total_savings(self):
-        income = self.total_income()
-        expenses = self.total_expenses()
+    # =========================================================
+    # SAVINGS
+    # =========================================================
+
+    def get_savings(self, user_id: int) -> float:
+        """
+        Calculate savings for a specific user.
+
+        Savings = Income - Expenses
+        """
+
+        income = self.get_total_income(user_id)
+
+        expenses = self.get_total_expenses(user_id)
 
         return income - expenses
 
@@ -59,26 +92,84 @@ class FinanceService:
     # CATEGORY EXPENSES
     # =========================================================
 
-    def category_expenses(self, category: str) -> float:
+    def get_category_expenses(
+        self,
+        user_id: int,
+        category: str
+    ) -> float:
+        """
+        Get total expenses for a specific category
+        and user.
+        """
+
         connection = self._connection()
 
         try:
-            cursor = connection.cursor()
-
-            cursor.execute("""
+            result = connection.execute(
+                """
                 SELECT COALESCE(SUM(t.amount), 0)
+
                 FROM transactions t
 
                 JOIN categories c
                     ON t.category_id = c.id
 
-                WHERE t.transaction_type = 'expense'
+                WHERE t.user_id = ?
+
+                AND t.transaction_type = 'expense'
+
                 AND LOWER(c.name) = LOWER(?)
-            """, (category,))
+                """,
+                (
+                    user_id,
+                    category
+                )
+            ).fetchone()
 
-            result = cursor.fetchone()
+            return float(result[0])
 
-            return result[0]
+        finally:
+            connection.close()
+
+    # =========================================================
+    # EXPENSES BY CATEGORY
+    # =========================================================
+
+    def get_expenses_by_category(
+        self,
+        user_id: int
+    ):
+        """
+        Get all expense totals grouped by category
+        for a specific user.
+        """
+
+        connection = self._connection()
+
+        try:
+            results = connection.execute(
+                """
+                SELECT
+                    c.name AS category,
+                    SUM(t.amount) AS total
+
+                FROM transactions t
+
+                JOIN categories c
+                    ON t.category_id = c.id
+
+                WHERE t.user_id = ?
+
+                AND t.transaction_type = 'expense'
+
+                GROUP BY c.name
+
+                ORDER BY total DESC
+                """,
+                (user_id,)
+            ).fetchall()
+
+            return results
 
         finally:
             connection.close()
@@ -87,35 +178,39 @@ class FinanceService:
     # LARGEST EXPENSE
     # =========================================================
 
-    def largest_expense(self):
+    def get_largest_expense(
+        self,
+        user_id: int
+    ):
+        """
+        Get the largest expense for a specific user.
+        """
+
         connection = self._connection()
 
         try:
-            cursor = connection.cursor()
-
-            cursor.execute("""
+            result = connection.execute(
+                """
                 SELECT
-                    t.amount,
-                    t.merchant,
-                    t.description,
-                    t.transaction_date,
-                    c.name AS category
+                    amount,
+                    merchant,
+                    description,
+                    transaction_date
 
-                FROM transactions t
+                FROM transactions
 
-                LEFT JOIN categories c
-                    ON t.category_id = c.id
+                WHERE user_id = ?
 
-                WHERE t.transaction_type = 'expense'
+                AND transaction_type = 'expense'
 
-                ORDER BY
-                    t.amount DESC,
-                    t.transaction_date DESC
+                ORDER BY amount DESC
 
                 LIMIT 1
-            """)
+                """,
+                (user_id,)
+            ).fetchone()
 
-            return cursor.fetchone()
+            return result
 
         finally:
             connection.close()
@@ -124,21 +219,38 @@ class FinanceService:
     # MERCHANT EXPENSES
     # =========================================================
 
-    def merchant_expenses(self, merchant):
+    def get_merchant_expenses(
+        self,
+        user_id: int,
+        merchant: str
+    ) -> float:
+        """
+        Get total expenses for a specific merchant
+        and user.
+        """
+
         connection = self._connection()
 
         try:
-            cursor = connection.cursor()
-
-            cursor.execute("""
+            result = connection.execute(
+                """
                 SELECT COALESCE(SUM(amount), 0)
+
                 FROM transactions
 
-                WHERE transaction_type = 'expense'
-                AND LOWER(merchant) LIKE LOWER(?)
-            """, (f"%{merchant}%",))
+                WHERE user_id = ?
 
-            return cursor.fetchone()[0]
+                AND transaction_type = 'expense'
+
+                AND LOWER(merchant) LIKE LOWER(?)
+                """,
+                (
+                    user_id,
+                    f"%{merchant}%"
+                )
+            ).fetchone()
+
+            return float(result[0])
 
         finally:
             connection.close()
@@ -147,18 +259,30 @@ class FinanceService:
     # TRANSACTION COUNT
     # =========================================================
 
-    def transaction_count(self):
+    def get_transaction_count(
+        self,
+        user_id: int
+    ) -> int:
+        """
+        Get total number of transactions
+        for a specific user.
+        """
+
         connection = self._connection()
 
         try:
-            cursor = connection.cursor()
-
-            cursor.execute("""
+            result = connection.execute(
+                """
                 SELECT COUNT(*)
-                FROM transactions
-            """)
 
-            return cursor.fetchone()[0]
+                FROM transactions
+
+                WHERE user_id = ?
+                """,
+                (user_id,)
+            ).fetchone()
+
+            return int(result[0])
 
         finally:
             connection.close()
@@ -167,7 +291,16 @@ class FinanceService:
     # CREATE USER
     # =========================================================
 
-    def create_user(self, name, email, currency="INR"):
+    def create_user(
+        self,
+        name,
+        email,
+        currency="INR"
+    ):
+        """
+        Create a new user.
+        """
+
         connection = self._connection()
 
         try:
@@ -192,6 +325,10 @@ class FinanceService:
 
             return cursor.lastrowid
 
+        except Exception:
+            connection.rollback()
+            raise
+
         finally:
             connection.close()
 
@@ -208,6 +345,10 @@ class FinanceService:
         balance=0,
         currency="INR"
     ):
+        """
+        Create an account for a specific user.
+        """
+
         connection = self._connection()
 
         try:
@@ -238,6 +379,10 @@ class FinanceService:
 
             return cursor.lastrowid
 
+        except Exception:
+            connection.rollback()
+            raise
+
         finally:
             connection.close()
 
@@ -252,6 +397,10 @@ class FinanceService:
         category_type,
         parent_id=None
     ):
+        """
+        Create a category for a specific user.
+        """
+
         connection = self._connection()
 
         try:
@@ -278,6 +427,10 @@ class FinanceService:
 
             return cursor.lastrowid
 
+        except Exception:
+            connection.rollback()
+            raise
+
         finally:
             connection.close()
 
@@ -297,6 +450,10 @@ class FinanceService:
         merchant=None,
         notes=None
     ):
+        """
+        Add a transaction for a specific user.
+        """
+
         if amount <= 0:
             raise ValueError(
                 "Amount must be greater than zero."
@@ -308,7 +465,8 @@ class FinanceService:
             "transfer"
         ]:
             raise ValueError(
-                "Transaction type must be income, expense or transfer."
+                "Transaction type must be "
+                "income, expense or transfer."
             )
 
         if transaction_date is None:
@@ -346,7 +504,10 @@ class FinanceService:
                 )
             )
 
+            # ---------------------------------------------
             # Update account balance
+            # ---------------------------------------------
+
             if transaction_type == "income":
 
                 connection.execute(
@@ -354,10 +515,12 @@ class FinanceService:
                     UPDATE accounts
                     SET balance = balance + ?
                     WHERE id = ?
+                    AND user_id = ?
                     """,
                     (
                         amount,
-                        account_id
+                        account_id,
+                        user_id
                     )
                 )
 
@@ -368,10 +531,12 @@ class FinanceService:
                     UPDATE accounts
                     SET balance = balance - ?
                     WHERE id = ?
+                    AND user_id = ?
                     """,
                     (
                         amount,
-                        account_id
+                        account_id,
+                        user_id
                     )
                 )
 
@@ -390,7 +555,14 @@ class FinanceService:
     # GET TRANSACTIONS
     # =========================================================
 
-    def get_transactions(self, user_id):
+    def get_transactions(
+        self,
+        user_id: int
+    ):
+        """
+        Get all transactions belonging to a specific user.
+        """
+
         connection = self._connection()
 
         try:
@@ -416,110 +588,14 @@ class FinanceService:
 
                 WHERE t.user_id = ?
 
-                ORDER BY t.transaction_date DESC
+                ORDER BY
+                    t.transaction_date DESC,
+                    t.id DESC
                 """,
                 (user_id,)
             ).fetchall()
 
             return transactions
-
-        finally:
-            connection.close()
-
-    # =========================================================
-    # USER TOTAL INCOME
-    # =========================================================
-
-    def get_total_income(self, user_id):
-
-        connection = self._connection()
-
-        try:
-            result = connection.execute(
-                """
-                SELECT COALESCE(SUM(amount), 0)
-
-                FROM transactions
-
-                WHERE user_id = ?
-                AND transaction_type = 'income'
-                """,
-                (user_id,)
-            ).fetchone()
-
-            return result[0]
-
-        finally:
-            connection.close()
-
-    # =========================================================
-    # USER TOTAL EXPENSES
-    # =========================================================
-
-    def get_total_expenses(self, user_id):
-
-        connection = self._connection()
-
-        try:
-            result = connection.execute(
-                """
-                SELECT COALESCE(SUM(amount), 0)
-
-                FROM transactions
-
-                WHERE user_id = ?
-                AND transaction_type = 'expense'
-                """,
-                (user_id,)
-            ).fetchone()
-
-            return result[0]
-
-        finally:
-            connection.close()
-
-    # =========================================================
-    # USER SAVINGS
-    # =========================================================
-
-    def get_savings(self, user_id):
-
-        income = self.get_total_income(user_id)
-        expenses = self.get_total_expenses(user_id)
-
-        return income - expenses
-
-    # =========================================================
-    # EXPENSES BY CATEGORY
-    # =========================================================
-
-    def get_expenses_by_category(self, user_id):
-
-        connection = self._connection()
-
-        try:
-            results = connection.execute(
-                """
-                SELECT
-                    c.name AS category,
-                    SUM(t.amount) AS total
-
-                FROM transactions t
-
-                JOIN categories c
-                    ON t.category_id = c.id
-
-                WHERE t.user_id = ?
-                AND t.transaction_type = 'expense'
-
-                GROUP BY c.name
-
-                ORDER BY total DESC
-                """,
-                (user_id,)
-            ).fetchall()
-
-            return results
 
         finally:
             connection.close()

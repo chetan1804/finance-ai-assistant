@@ -1,3 +1,5 @@
+import sqlite3
+
 from langgraph.graph import (
     StateGraph,
     START,
@@ -9,26 +11,26 @@ from langgraph.prebuilt import (
     tools_condition,
 )
 
-from src.agent.state import AgentState
+from langgraph.checkpoint.sqlite import SqliteSaver
 
+from src.agent.state import AgentState
 from src.agent.nodes import (
     call_llm,
     TOOLS,
 )
 
 
-def build_graph():
+CHECKPOINT_DATABASE = "data/checkpoints.db"
 
-    # --------------------------------------------------------
-    # Create graph
-    # --------------------------------------------------------
+
+def build_graph():
 
     graph = StateGraph(
         AgentState
     )
 
     # --------------------------------------------------------
-    # Add LLM node
+    # LLM
     # --------------------------------------------------------
 
     graph.add_node(
@@ -37,7 +39,7 @@ def build_graph():
     )
 
     # --------------------------------------------------------
-    # Add ToolNode
+    # TOOLS
     # --------------------------------------------------------
 
     graph.add_node(
@@ -46,7 +48,7 @@ def build_graph():
     )
 
     # --------------------------------------------------------
-    # START → LLM
+    # START -> LLM
     # --------------------------------------------------------
 
     graph.add_edge(
@@ -55,7 +57,7 @@ def build_graph():
     )
 
     # --------------------------------------------------------
-    # LLM → TOOLS or END
+    # LLM -> TOOL or END
     # --------------------------------------------------------
 
     graph.add_conditional_edges(
@@ -68,7 +70,7 @@ def build_graph():
     )
 
     # --------------------------------------------------------
-    # TOOLS → LLM
+    # TOOL -> LLM
     # --------------------------------------------------------
 
     graph.add_edge(
@@ -77,7 +79,22 @@ def build_graph():
     )
 
     # --------------------------------------------------------
-    # Compile
+    # CHECKPOINTER
     # --------------------------------------------------------
 
-    return graph.compile()
+    connection = sqlite3.connect(
+        CHECKPOINT_DATABASE,
+        check_same_thread=False
+    )
+
+    checkpointer = SqliteSaver(
+        connection
+    )
+
+    # --------------------------------------------------------
+    # COMPILE
+    # --------------------------------------------------------
+
+    return graph.compile(
+        checkpointer=checkpointer
+    )

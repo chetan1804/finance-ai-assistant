@@ -13,3 +13,5 @@ class AgentState(TypedDict):
         list[BaseMessage],
         add_messages
     ]
+
+    user_id: int

@@ -125,4 +125,5 @@ def initialize_database():
         raise
 
     finally:
-        connection.close()
+    
+        ""
