@@ -938,7 +938,10 @@ class FinanceService:
                     t.transaction_date,
                     t.merchant,
                     c.name AS category,
-                    a.name AS account
+                    a.name AS account,
+                    t.account_id,
+                    t.category_id,
+                    t.notes
 
                 FROM transactions t
 
@@ -967,4 +970,234 @@ class FinanceService:
 
         finally:
 
+            connection.close()
+
+    def update_transaction(
+        self,
+        user_id,
+        transaction_id,
+        account_id,
+        category_id,
+        transaction_type,
+        amount,
+        description,
+        transaction_date=None,
+        merchant=None,
+        notes=None,
+    ):
+        """Update a user-owned transaction and reconcile account balances."""
+        user_id = validate_positive_id(user_id, "user_id")
+        transaction_id = validate_positive_id(transaction_id, "transaction_id")
+        account_id = validate_positive_id(account_id, "account_id")
+        if category_id is not None:
+            category_id = validate_positive_id(category_id, "category_id")
+        transaction_type = validate_text(
+            transaction_type,
+            "transaction_type",
+            max_length=20,
+        ).casefold()
+        if transaction_type not in VALID_TRANSACTION_TYPES:
+            raise ValueError(
+                "transaction_type must be income, expense, or transfer."
+            )
+        amount = validate_money(amount)
+        description = validate_text(
+            description,
+            "description",
+            max_length=500,
+            required=False,
+        )
+        merchant = validate_text(
+            merchant,
+            "merchant",
+            max_length=255,
+            required=False,
+        )
+        notes = validate_text(
+            notes,
+            "notes",
+            max_length=1000,
+            required=False,
+            allow_newlines=True,
+        )
+        if transaction_date is None:
+            transaction_date = date.today().isoformat()
+        transaction_date = validate_iso_date(
+            transaction_date,
+            "transaction_date",
+            allow_none=False,
+        )
+
+        connection = self._connection()
+        try:
+            old = connection.execute(
+                """
+                SELECT account_id, transaction_type, amount
+                FROM transactions
+                WHERE id = ? AND user_id = ?
+                """,
+                (transaction_id, user_id),
+            ).fetchone()
+            if old is None:
+                raise ValueError("Transaction not found.")
+
+            account = connection.execute(
+                "SELECT 1 FROM accounts WHERE id = ? AND user_id = ?",
+                (account_id, user_id),
+            ).fetchone()
+            if account is None:
+                raise ValueError(
+                    "The account does not belong to the selected user."
+                )
+
+            if category_id is not None:
+                category = connection.execute(
+                    """
+                    SELECT 1 FROM categories
+                    WHERE id = ? AND (user_id = ? OR user_id IS NULL)
+                    """,
+                    (category_id, user_id),
+                ).fetchone()
+                if category is None:
+                    raise ValueError(
+                        "The category is not available to the selected user."
+                    )
+
+            old_account_id, old_type, old_amount = old
+            if old_type == "income":
+                connection.execute(
+                    "UPDATE accounts SET balance = balance - ? WHERE id = ? AND user_id = ?",
+                    (old_amount, old_account_id, user_id),
+                )
+            elif old_type == "expense":
+                connection.execute(
+                    "UPDATE accounts SET balance = balance + ? WHERE id = ? AND user_id = ?",
+                    (old_amount, old_account_id, user_id),
+                )
+
+            connection.execute(
+                """
+                UPDATE transactions
+                SET account_id = ?, category_id = ?, transaction_type = ?,
+                    amount = ?, description = ?, transaction_date = ?,
+                    merchant = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND user_id = ?
+                """,
+                (
+                    account_id,
+                    category_id,
+                    transaction_type,
+                    amount,
+                    description,
+                    transaction_date,
+                    merchant,
+                    notes,
+                    transaction_id,
+                    user_id,
+                ),
+            )
+
+            if transaction_type == "income":
+                connection.execute(
+                    "UPDATE accounts SET balance = balance + ? WHERE id = ? AND user_id = ?",
+                    (amount, account_id, user_id),
+                )
+            elif transaction_type == "expense":
+                connection.execute(
+                    "UPDATE accounts SET balance = balance - ? WHERE id = ? AND user_id = ?",
+                    (amount, account_id, user_id),
+                )
+
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def delete_transaction(self, user_id, transaction_id):
+        """Delete a user-owned transaction and reverse its balance effect."""
+        user_id = validate_positive_id(user_id, "user_id")
+        transaction_id = validate_positive_id(transaction_id, "transaction_id")
+        connection = self._connection()
+        try:
+            transaction = connection.execute(
+                """
+                SELECT account_id, transaction_type, amount
+                FROM transactions
+                WHERE id = ? AND user_id = ?
+                """,
+                (transaction_id, user_id),
+            ).fetchone()
+            if transaction is None:
+                raise ValueError("Transaction not found.")
+
+            account_id, transaction_type, amount = transaction
+            if transaction_type == "income":
+                connection.execute(
+                    "UPDATE accounts SET balance = balance - ? WHERE id = ? AND user_id = ?",
+                    (amount, account_id, user_id),
+                )
+            elif transaction_type == "expense":
+                connection.execute(
+                    "UPDATE accounts SET balance = balance + ? WHERE id = ? AND user_id = ?",
+                    (amount, account_id, user_id),
+                )
+
+            connection.execute(
+                "DELETE FROM transactions WHERE id = ? AND user_id = ?",
+                (transaction_id, user_id),
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def get_accounts(self, user_id: int):
+        """Return active accounts belonging to a user."""
+        user_id = validate_positive_id(user_id, "user_id")
+        connection = self._connection()
+
+        try:
+            return connection.execute(
+                """
+                SELECT id, name, account_type, institution, balance, currency
+                FROM accounts
+                WHERE user_id = ?
+                AND is_active = 1
+                ORDER BY name, id
+                """,
+                (user_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+
+    def get_categories(self, user_id: int, category_type=None):
+        """Return user-owned and shared categories, optionally by type."""
+        user_id = validate_positive_id(user_id, "user_id")
+        params = [user_id]
+        query = """
+            SELECT id, name, category_type, parent_id
+            FROM categories
+            WHERE (user_id = ? OR user_id IS NULL)
+        """
+
+        if category_type is not None:
+            category_type = validate_text(
+                category_type,
+                "category_type",
+                max_length=20,
+            ).casefold()
+            if category_type not in VALID_CATEGORY_TYPES:
+                raise ValueError("category_type must be income or expense.")
+            query += " AND category_type = ?"
+            params.append(category_type)
+
+        query += " ORDER BY name, id"
+        connection = self._connection()
+        try:
+            return connection.execute(query, tuple(params)).fetchall()
+        finally:
             connection.close()

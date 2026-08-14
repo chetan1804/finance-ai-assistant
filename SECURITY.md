@@ -19,6 +19,10 @@
 - Authenticated endpoints have per-user rate limiting.
 - API responses include no-store, MIME-sniffing, framing, and referrer controls.
 - Oversized request bodies are rejected before endpoint processing.
+- The dashboard stores bearer tokens in browser session storage, not persistent
+  local storage, and removes them on sign-out.
+- Dashboard assets use a same-origin content-security policy without inline or
+  third-party scripts.
 
 ## Important limitations
 
@@ -37,6 +41,9 @@
   a shared limiter such as Redis or an API gateway.
 - TLS termination, allowed-host enforcement, and trusted-proxy configuration
   must be supplied by the production platform.
+- Browser session storage remains accessible to same-origin JavaScript. Keep the
+  strict content-security policy, review frontend dependencies, and avoid adding
+  third-party scripts that could access bearer tokens.
 
 ## Secret handling
 

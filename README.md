@@ -45,7 +45,7 @@ Build a finance assistant progressively using:
 
 ## Current Stage
 
-Step 18 — API complete. Step 19 — UI is next.
+Step 19 — UI complete. Step 20 — Deployment is next.
 
 ## Step 15 Features
 
@@ -117,12 +117,30 @@ python -m uvicorn src.api.app:create_app --factory --reload
 Open `http://127.0.0.1:8000/docs` for the interactive API documentation. Send
 the configured token as `Authorization: Bearer <token>`.
 
+Open `http://127.0.0.1:8000/` for the finance dashboard. Paste the generated
+bearer token into the secure session screen. The browser keeps it only in
+session storage, so signing out or closing the tab clears the session.
+
 Available endpoints:
 
 - `GET /health`
 - `GET /api/v1/summary`
 - `GET /api/v1/transactions`
 - `POST /api/v1/transactions`
+- `PUT /api/v1/transactions/{transaction_id}`
+- `DELETE /api/v1/transactions/{transaction_id}`
 - `GET /api/v1/preferences`
 - `PUT /api/v1/preferences`
 - `POST /api/v1/chat`
+- `GET /api/v1/accounts`
+- `GET /api/v1/categories`
+
+## Dashboard Features
+
+- Responsive financial overview and date filters
+- Income, spending, savings, and savings-rate metrics
+- Cash-flow comparison and category breakdown
+- Secure transaction creation, editing, and deletion with balance reconciliation
+- Account balance cards
+- User preference editing
+- Context-aware finance assistant chat

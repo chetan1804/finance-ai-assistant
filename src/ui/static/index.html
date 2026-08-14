@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A private dashboard for personal financial insights.">
+  <title>Khata — Personal Finance</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <section id="auth-view" class="auth-view" aria-labelledby="auth-title">
+    <div class="auth-card">
+      <div class="brand-mark" aria-hidden="true">ख</div>
+      <p class="eyebrow">Private finance workspace</p>
+      <h1 id="auth-title">Welcome to Khata</h1>
+      <p class="auth-copy">Your financial picture, thoughtfully organized and securely yours.</p>
+      <form id="auth-form" class="auth-form">
+        <label for="api-token">API bearer token</label>
+        <div class="token-field">
+          <input id="api-token" name="token" type="password" minlength="32" required autocomplete="off" placeholder="Paste your generated token">
+          <button id="toggle-token" class="icon-button" type="button" aria-label="Show token">Show</button>
+        </div>
+        <button class="primary-button full-button" type="submit">
+          <span>Open dashboard</span><span aria-hidden="true">→</span>
+        </button>
+      </form>
+      <p class="auth-help">Your token stays in this browser tab and is cleared when you sign out.</p>
+      <div id="auth-error" class="inline-error" role="alert" hidden></div>
+    </div>
+  </section>
+
+  <div id="app-shell" class="app-shell" hidden>
+    <aside class="sidebar">
+      <a class="brand" href="#overview" aria-label="Khata dashboard home">
+        <span class="brand-mark small" aria-hidden="true">ख</span>
+        <span><strong>Khata</strong><small>Personal finance</small></span>
+      </a>
+      <nav class="nav-list" aria-label="Dashboard navigation">
+        <a class="nav-item active" href="#overview"><span aria-hidden="true">⌂</span> Overview</a>
+        <a class="nav-item" href="#transactions"><span aria-hidden="true">↕</span> Transactions</a>
+        <a class="nav-item" href="#accounts"><span aria-hidden="true">▣</span> Accounts</a>
+        <a class="nav-item" href="#assistant"><span aria-hidden="true">✦</span> Assistant</a>
+        <a class="nav-item" href="#preferences"><span aria-hidden="true">⚙</span> Preferences</a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="secure-note"><span class="status-dot"></span><span><strong>Private session</strong><small>Encrypted in transit when served over HTTPS</small></span></div>
+        <button id="sign-out" class="text-button" type="button">Sign out</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Financial command center</p>
+          <h1>Good <span id="day-period">day</span>.</h1>
+        </div>
+        <div class="topbar-actions">
+          <span id="last-updated" class="last-updated">Not synced yet</span>
+          <button id="refresh-all" class="secondary-button" type="button">↻ Refresh</button>
+          <button id="open-transaction" class="primary-button" type="button">＋ Add transaction</button>
+        </div>
+      </header>
+
+      <section id="overview" class="section-block" aria-labelledby="overview-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">Overview</p><h2 id="overview-title">Your money, in focus</h2></div>
+          <form id="date-filter" class="date-filter">
+            <label>From<input id="start-date" type="date"></label>
+            <label>To<input id="end-date" type="date"></label>
+            <button class="secondary-button" type="submit">Apply</button>
+            <button id="clear-dates" class="text-button" type="button">Clear</button>
+          </form>
+        </div>
+
+        <div class="metric-grid">
+          <article class="metric-card metric-primary">
+            <span class="metric-label">Net savings</span>
+            <strong id="savings-value" class="metric-value">—</strong>
+            <span id="savings-caption" class="metric-caption">Income minus expenses</span>
+            <div class="metric-orbit" aria-hidden="true"></div>
+          </article>
+          <article class="metric-card">
+            <span class="metric-icon income" aria-hidden="true">↗</span>
+            <span class="metric-label">Total income</span>
+            <strong id="income-value" class="metric-value">—</strong>
+            <span class="metric-caption">Money coming in</span>
+          </article>
+          <article class="metric-card">
+            <span class="metric-icon expense" aria-hidden="true">↘</span>
+            <span class="metric-label">Total expenses</span>
+            <strong id="expenses-value" class="metric-value">—</strong>
+            <span class="metric-caption">Money going out</span>
+          </article>
+          <article class="metric-card">
+            <span class="metric-icon ratio" aria-hidden="true">%</span>
+            <span class="metric-label">Savings rate</span>
+            <strong id="savings-rate" class="metric-value">—</strong>
+            <span class="metric-caption">Of total income retained</span>
+          </article>
+        </div>
+
+        <div class="insight-grid">
+          <article class="panel cashflow-panel">
+            <div class="panel-heading"><div><p class="eyebrow">Cash flow</p><h3>Income vs spending</h3></div><span id="period-label" class="pill">All time</span></div>
+            <div class="flow-chart" aria-label="Income and expense comparison">
+              <div class="flow-row"><span>Income</span><div class="flow-track"><progress id="income-bar" class="flow-bar income-bar" max="100" value="0">0%</progress></div><strong id="income-chart-value">—</strong></div>
+              <div class="flow-row"><span>Expenses</span><div class="flow-track"><progress id="expense-bar" class="flow-bar expense-bar" max="100" value="0">0%</progress></div><strong id="expense-chart-value">—</strong></div>
+            </div>
+            <div id="cashflow-insight" class="insight-note">Connect your data to see a cash-flow insight.</div>
+          </article>
+          <article class="panel category-panel">
+            <div class="panel-heading"><div><p class="eyebrow">Spending mix</p><h3>Top categories</h3></div></div>
+            <div id="category-list" class="category-list"><p class="empty-state">No expense data yet.</p></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="transactions" class="section-block" aria-labelledby="transactions-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">Activity</p><h2 id="transactions-title">Recent transactions</h2></div>
+          <button id="open-transaction-secondary" class="secondary-button" type="button">Add transaction</button>
+        </div>
+        <div class="table-panel">
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Description</th><th>Category</th><th>Account</th><th>Date</th><th class="amount-cell">Amount</th><th class="actions-heading">Actions</th></tr></thead>
+              <tbody id="transaction-body"><tr><td colspan="6" class="empty-state">No transactions loaded.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="accounts" class="section-block" aria-labelledby="accounts-title">
+        <div class="section-heading"><div><p class="eyebrow">Connected money</p><h2 id="accounts-title">Accounts</h2></div></div>
+        <div id="account-grid" class="account-grid"><p class="empty-state">No accounts loaded.</p></div>
+      </section>
+
+      <section id="assistant" class="section-block assistant-section" aria-labelledby="assistant-title">
+        <div class="assistant-intro">
+          <span class="assistant-spark" aria-hidden="true">✦</span>
+          <p class="eyebrow">AI finance assistant</p>
+          <h2 id="assistant-title">Ask your money a question</h2>
+          <p>Get grounded answers based only on your financial data.</p>
+          <div class="prompt-chips" aria-label="Suggested questions">
+            <button type="button" data-question="How much did I spend?">Total spending</button>
+            <button type="button" data-question="What are my total savings?">My savings</button>
+            <button type="button" data-question="How much did I spend on food?">Food expenses</button>
+          </div>
+        </div>
+        <div class="chat-card">
+          <div id="chat-messages" class="chat-messages" aria-live="polite">
+            <div class="message assistant-message"><span class="avatar">ख</span><p>Hi — ask me about your income, spending, savings, or categories.</p></div>
+          </div>
+          <form id="chat-form" class="chat-form">
+            <label class="sr-only" for="chat-question">Ask a financial question</label>
+            <textarea id="chat-question" rows="1" maxlength="2000" required placeholder="Ask about your finances…"></textarea>
+            <button class="send-button" type="submit" aria-label="Send question">↑</button>
+          </form>
+        </div>
+      </section>
+
+      <section id="preferences" class="section-block" aria-labelledby="preferences-title">
+        <div class="section-heading"><div><p class="eyebrow">Personalization</p><h2 id="preferences-title">Preferences</h2></div></div>
+        <form id="preferences-form" class="panel preferences-form">
+          <label>Language<input id="preference-language" maxlength="50" required></label>
+          <label>Currency<input id="preference-currency" maxlength="3" required></label>
+          <label>Monthly income<input id="preference-income" type="number" min="1" step="0.01" placeholder="Optional"></label>
+          <label>Risk preference<select id="preference-risk"><option value="">Not set</option><option value="conservative">Conservative</option><option value="moderate">Moderate</option><option value="aggressive">Aggressive</option></select></label>
+          <label class="toggle-label"><input id="preference-notifications" type="checkbox"><span class="toggle-control"></span><span>Notifications enabled</span></label>
+          <button class="primary-button" type="submit">Save preferences</button>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="transaction-dialog" class="modal">
+    <form id="transaction-form" method="dialog">
+      <div class="modal-heading"><div><p id="transaction-dialog-eyebrow" class="eyebrow">New activity</p><h2 id="transaction-dialog-title">Add transaction</h2></div><button id="close-transaction" class="icon-button" type="button" aria-label="Close">×</button></div>
+      <div class="form-grid">
+        <label>Type<select id="transaction-type" required><option value="expense">Expense</option><option value="income">Income</option><option value="transfer">Transfer</option></select></label>
+        <label>Amount<input id="transaction-amount" type="number" min="0.01" step="0.01" required placeholder="0.00"></label>
+        <label>Account<select id="transaction-account" required></select></label>
+        <label>Category<select id="transaction-category"><option value="">No category</option></select></label>
+        <label class="wide-field">Description<input id="transaction-description" maxlength="500" placeholder="What was this for?"></label>
+        <label>Merchant<input id="transaction-merchant" maxlength="255" placeholder="Optional"></label>
+        <label>Date<input id="transaction-date" type="date"></label>
+        <label class="wide-field">Notes<textarea id="transaction-notes" maxlength="1000" rows="3" placeholder="Optional details"></textarea></label>
+      </div>
+      <div class="modal-actions"><button id="cancel-transaction" class="secondary-button" type="button">Cancel</button><button id="save-transaction" class="primary-button" type="submit">Save transaction</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

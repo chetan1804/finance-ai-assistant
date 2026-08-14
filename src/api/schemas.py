@@ -64,10 +64,29 @@ class TransactionCreated(StrictModel):
 
 class TransactionResponse(StrictModel):
     id: int
+    account_id: int
+    category_id: int | None
     amount: float
     transaction_type: str
     description: str | None
     transaction_date: date
     merchant: str | None
+    notes: str | None
     category: str | None
     account: str
+
+
+class AccountResponse(StrictModel):
+    id: int
+    name: str
+    account_type: str
+    institution: str | None
+    balance: float
+    currency: str
+
+
+class CategoryResponse(StrictModel):
+    id: int
+    name: str
+    category_type: Literal["income", "expense"]
+    parent_id: int | None

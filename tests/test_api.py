@@ -29,7 +29,7 @@ def api_context(tmp_path):
         "savings",
     )
     food_id = service.create_category(user_id, "Food", "expense")
-    service.add_transaction(
+    salary_id = service.add_transaction(
         user_id,
         account_id,
         food_id,
@@ -38,7 +38,7 @@ def api_context(tmp_path):
         "Salary",
         "2026-07-01",
     )
-    service.add_transaction(
+    grocery_id = service.add_transaction(
         user_id,
         account_id,
         food_id,
@@ -47,7 +47,7 @@ def api_context(tmp_path):
         "Groceries",
         "2026-07-10",
     )
-    service.add_transaction(
+    private_transaction_id = service.add_transaction(
         other_user_id,
         other_account_id,
         None,
@@ -87,6 +87,9 @@ def api_context(tmp_path):
         "account_id": account_id,
         "other_account_id": other_account_id,
         "food_id": food_id,
+        "salary_id": salary_id,
+        "grocery_id": grocery_id,
+        "private_transaction_id": private_transaction_id,
         "chat_calls": chat_calls,
     }
 
@@ -99,6 +102,23 @@ def test_health_is_public_and_has_security_headers(api_context):
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
+
+
+def test_dashboard_and_static_assets_are_served_with_strict_csp(api_context):
+    client = api_context["client"]
+    page = client.get("/")
+    script = client.get("/static/app.js")
+    styles = client.get("/static/styles.css")
+
+    assert page.status_code == 200
+    assert "Welcome to Khata" in page.text
+    assert "default-src 'self'" in page.headers["content-security-policy"]
+    assert "unsafe-inline" not in page.headers["content-security-policy"]
+    assert script.status_code == 200
+    assert "sessionStorage" in script.text
+    assert "localStorage" not in script.text
+    assert styles.status_code == 200
+    assert "--green" in styles.text
 
 
 def test_protected_endpoint_requires_a_valid_bearer_token(api_context):
@@ -128,6 +148,20 @@ def test_summary_identity_comes_from_the_token(api_context):
     assert user_summary.json()["expenses"] == 2000
     assert user_summary.json()["savings"] == 48000
     assert other_summary.json()["expenses"] == 9999
+
+
+def test_account_and_category_options_are_user_scoped(api_context):
+    client = api_context["client"]
+    accounts = client.get("/api/v1/accounts", headers=AUTH_HEADERS)
+    categories = client.get(
+        "/api/v1/categories?category_type=expense",
+        headers=AUTH_HEADERS,
+    )
+
+    assert accounts.status_code == 200
+    assert [account["name"] for account in accounts.json()] == ["Bank"]
+    assert categories.status_code == 200
+    assert [category["name"] for category in categories.json()] == ["Food"]
 
 
 def test_summary_rejects_reversed_dates(api_context):
@@ -180,6 +214,62 @@ def test_transaction_rejects_another_users_account(api_context):
 
     assert response.status_code == 422
     assert "does not belong" in response.json()["detail"]
+
+
+def test_transaction_update_reconciles_balance_and_returns_edit_fields(api_context):
+    client = api_context["client"]
+    transaction_id = api_context["grocery_id"]
+    response = client.put(
+        f"/api/v1/transactions/{transaction_id}",
+        headers=AUTH_HEADERS,
+        json={
+            "account_id": api_context["account_id"],
+            "category_id": None,
+            "transaction_type": "income",
+            "amount": 3000,
+            "description": "Refund",
+            "transaction_date": "2026-07-12",
+            "merchant": "Market",
+            "notes": "Corrected entry",
+        },
+    )
+    listed = client.get("/api/v1/transactions", headers=AUTH_HEADERS)
+    accounts = client.get("/api/v1/accounts", headers=AUTH_HEADERS)
+    summary = client.get("/api/v1/summary", headers=AUTH_HEADERS)
+
+    assert response.status_code == 200
+    assert response.json() == {"id": transaction_id}
+    updated = next(item for item in listed.json() if item["id"] == transaction_id)
+    assert updated["transaction_type"] == "income"
+    assert updated["account_id"] == api_context["account_id"]
+    assert updated["category_id"] is None
+    assert updated["notes"] == "Corrected entry"
+    assert accounts.json()[0]["balance"] == 53000
+    assert summary.json()["income"] == 53000
+    assert summary.json()["expenses"] == 0
+
+
+def test_transaction_delete_reverses_balance_and_is_user_scoped(api_context):
+    client = api_context["client"]
+    deleted = client.delete(
+        f"/api/v1/transactions/{api_context['grocery_id']}",
+        headers=AUTH_HEADERS,
+    )
+    forbidden = client.delete(
+        f"/api/v1/transactions/{api_context['private_transaction_id']}",
+        headers=AUTH_HEADERS,
+    )
+    accounts = client.get("/api/v1/accounts", headers=AUTH_HEADERS)
+    listed = client.get("/api/v1/transactions", headers=AUTH_HEADERS)
+
+    assert deleted.status_code == 204
+    assert forbidden.status_code == 422
+    assert "not found" in forbidden.json()["detail"].lower()
+    assert accounts.json()[0]["balance"] == 50000
+    assert all(
+        item["id"] != api_context["grocery_id"]
+        for item in listed.json()
+    )
 
 
 def test_preferences_can_be_read_and_updated(api_context):

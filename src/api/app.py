@@ -1,13 +1,18 @@
 from datetime import date
+from pathlib import Path
+from typing import Literal
 
-from fastapi import Depends, FastAPI, Query, Request, status
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, Query, Request, Response, status
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.api.auth import TokenAuthenticator
 from src.api.rate_limit import InMemoryRateLimiter
 from src.api.schemas import (
     ChatRequest,
     ChatResponse,
+    AccountResponse,
+    CategoryResponse,
     HealthResponse,
     PreferencesResponse,
     PreferencesUpdate,
@@ -20,6 +25,7 @@ from src.database.finance_service import FinanceService
 
 
 MAX_REQUEST_BYTES = 64 * 1024
+UI_DIRECTORY = Path(__file__).resolve().parents[1] / "ui" / "static"
 
 
 def _default_chat_handler(user_id, thread_id, question):
@@ -46,6 +52,11 @@ def create_app(
         version="1.0.0",
         description="Authenticated access to personalized financial insights.",
     )
+    application.mount(
+        "/static",
+        StaticFiles(directory=UI_DIRECTORY),
+        name="static",
+    )
 
     @application.middleware("http")
     async def security_headers(request: Request, call_next):
@@ -66,6 +77,13 @@ def create_app(
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; script-src 'self'; style-src 'self'; "
+                "img-src 'self' data:; connect-src 'self'; "
+                "font-src 'self'; object-src 'none'; base-uri 'none'; "
+                "frame-ancestors 'none'"
+            )
         return response
 
     @application.exception_handler(ValueError)
@@ -84,6 +102,45 @@ def create_app(
     @application.get("/health", response_model=HealthResponse)
     def health():
         return {"status": "ok"}
+
+    @application.get("/", include_in_schema=False)
+    def dashboard():
+        return FileResponse(UI_DIRECTORY / "index.html")
+
+    @application.get(
+        "/api/v1/accounts",
+        response_model=list[AccountResponse],
+    )
+    def accounts(user_id: int = Depends(current_user)):
+        return [
+            {
+                "id": row[0],
+                "name": row[1],
+                "account_type": row[2],
+                "institution": row[3],
+                "balance": row[4],
+                "currency": row[5],
+            }
+            for row in service.get_accounts(user_id)
+        ]
+
+    @application.get(
+        "/api/v1/categories",
+        response_model=list[CategoryResponse],
+    )
+    def categories(
+        category_type: Literal["income", "expense"] | None = None,
+        user_id: int = Depends(current_user),
+    ):
+        return [
+            {
+                "id": row[0],
+                "name": row[1],
+                "category_type": row[2],
+                "parent_id": row[3],
+            }
+            for row in service.get_categories(user_id, category_type)
+        ]
 
     @application.get(
         "/api/v1/summary",
@@ -126,6 +183,9 @@ def create_app(
                 "merchant": row[5],
                 "category": row[6],
                 "account": row[7],
+                "account_id": row[8],
+                "category_id": row[9],
+                "notes": row[10],
             }
             for row in rows
         ]
@@ -155,6 +215,44 @@ def create_app(
             notes=payload.notes,
         )
         return {"id": transaction_id}
+
+    @application.put(
+        "/api/v1/transactions/{transaction_id}",
+        response_model=TransactionCreated,
+    )
+    def update_transaction(
+        transaction_id: int,
+        payload: TransactionCreate,
+        user_id: int = Depends(current_user),
+    ):
+        service.update_transaction(
+            user_id=user_id,
+            transaction_id=transaction_id,
+            account_id=payload.account_id,
+            category_id=payload.category_id,
+            transaction_type=payload.transaction_type,
+            amount=payload.amount,
+            description=payload.description,
+            transaction_date=(
+                payload.transaction_date.isoformat()
+                if payload.transaction_date
+                else None
+            ),
+            merchant=payload.merchant,
+            notes=payload.notes,
+        )
+        return {"id": transaction_id}
+
+    @application.delete(
+        "/api/v1/transactions/{transaction_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def delete_transaction(
+        transaction_id: int,
+        user_id: int = Depends(current_user),
+    ):
+        service.delete_transaction(user_id, transaction_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @application.get(
         "/api/v1/preferences",
