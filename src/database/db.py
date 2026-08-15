@@ -1,15 +1,31 @@
+import os
 import sqlite3
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATABASE_PATH = PROJECT_ROOT / "data" / "finance.db"
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+
+
+def get_data_directory():
+    """Resolve the writable application-data directory at runtime."""
+    configured = os.getenv("FINANCE_DATA_DIR")
+    return Path(configured).expanduser() if configured else PROJECT_ROOT / "data"
+
+
+def get_database_path():
+    """Resolve the finance database path from deployment configuration."""
+    configured = os.getenv("FINANCE_DATABASE_PATH")
+    return (
+        Path(configured).expanduser()
+        if configured
+        else get_data_directory() / "finance.db"
+    )
 
 
 def get_connection(database_path=None):
     """Return a new SQLite connection with foreign keys enabled."""
-    path = Path(database_path) if database_path else DATABASE_PATH
+    path = Path(database_path) if database_path else get_database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
     connection = sqlite3.connect(str(path))

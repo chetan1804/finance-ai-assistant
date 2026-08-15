@@ -1,6 +1,7 @@
 import sqlite3
 import json
 from datetime import date
+import os
 from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -12,13 +13,21 @@ from src.agents.finance_state import FinanceState
 from src.agents.personalization import format_money
 from src.agents.query import execute_finance_query
 from src.database.finance_service import FinanceService
+from src.database.db import get_data_directory
 from src.llm.llm_client import get_llm
 from src.security.validation import validate_chat_request
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CHECKPOINT_DATABASE = PROJECT_ROOT / "data" / "checkpoints.db"
 MAX_CONTEXT_MESSAGES = 20
+
+
+def get_checkpoint_database():
+    configured = os.getenv("FINANCE_CHECKPOINT_PATH")
+    return (
+        Path(configured).expanduser()
+        if configured
+        else get_data_directory() / "checkpoints.db"
+    )
 
 llm = get_llm()
 finance_service = FinanceService()
@@ -157,8 +166,10 @@ def build_graph():
     return graph
 
 
+checkpoint_database = get_checkpoint_database()
+checkpoint_database.parent.mkdir(parents=True, exist_ok=True)
 checkpoint_connection = sqlite3.connect(
-    CHECKPOINT_DATABASE,
+    checkpoint_database,
     check_same_thread=False,
 )
 

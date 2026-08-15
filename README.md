@@ -45,7 +45,7 @@ Build a finance assistant progressively using:
 
 ## Current Stage
 
-Step 19 — UI complete. Step 20 — Deployment is next.
+Step 20 — Deployment foundation complete.
 
 ## Step 15 Features
 
@@ -144,3 +144,10 @@ Available endpoints:
 - Account balance cards
 - User preference editing
 - Context-aware finance assistant chat
+
+## Deployment
+
+The production container uses a non-root user, health checks, a reduced runtime
+dependency set, and persistent SQLite storage. See [DEPLOYMENT.md](DEPLOYMENT.md)
+for first-run bootstrap, Docker Compose, managed-platform configuration, backup,
+and scaling guidance.

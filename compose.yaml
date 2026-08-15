@@ -1,0 +1,16 @@
+services:
+  finance-assistant:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      FINANCE_DATA_DIR: /app/data
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - finance-data:/app/data
+
+volumes:
+  finance-data:

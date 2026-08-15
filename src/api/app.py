@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi import Depends, FastAPI, Query, Request, Response, status
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from dotenv import load_dotenv
 
 from src.api.auth import TokenAuthenticator
 from src.api.rate_limit import InMemoryRateLimiter
@@ -21,6 +22,7 @@ from src.api.schemas import (
     TransactionCreated,
     TransactionResponse,
 )
+from src.database.db import initialize_database
 from src.database.finance_service import FinanceService
 
 
@@ -42,7 +44,9 @@ def create_app(
     rate_limiter=None,
 ):
     """Create the API with injectable dependencies for deterministic tests."""
+    load_dotenv()
     service = service or FinanceService()
+    initialize_database(service.database_path)
     chat_handler = chat_handler or _default_chat_handler
     authenticator = authenticator or TokenAuthenticator.from_environment()
     rate_limiter = rate_limiter or InMemoryRateLimiter()
