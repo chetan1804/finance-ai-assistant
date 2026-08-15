@@ -1,4 +1,5 @@
 from datetime import date
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -27,7 +28,13 @@ from src.database.finance_service import FinanceService
 
 
 MAX_REQUEST_BYTES = 64 * 1024
-UI_DIRECTORY = Path(__file__).resolve().parents[1] / "ui" / "static"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+LEGACY_UI_DIRECTORY = Path(__file__).resolve().parents[1] / "ui" / "static"
+
+
+def get_ui_directory():
+    configured = os.getenv("FINANCE_UI_DIST")
+    return Path(configured).expanduser() if configured else LEGACY_UI_DIRECTORY
 
 
 def _default_chat_handler(user_id, thread_id, question):
@@ -47,6 +54,9 @@ def create_app(
     load_dotenv()
     service = service or FinanceService()
     initialize_database(service.database_path)
+    ui_directory = get_ui_directory()
+    if not (ui_directory / "index.html").is_file():
+        raise RuntimeError(f"Frontend build not found at {ui_directory}.")
     chat_handler = chat_handler or _default_chat_handler
     authenticator = authenticator or TokenAuthenticator.from_environment()
     rate_limiter = rate_limiter or InMemoryRateLimiter()
@@ -58,9 +68,15 @@ def create_app(
     )
     application.mount(
         "/static",
-        StaticFiles(directory=UI_DIRECTORY),
+        StaticFiles(directory=LEGACY_UI_DIRECTORY),
         name="static",
     )
+    if (ui_directory / "assets").is_dir():
+        application.mount(
+            "/assets",
+            StaticFiles(directory=ui_directory / "assets"),
+            name="react-assets",
+        )
 
     @application.middleware("http")
     async def security_headers(request: Request, call_next):
@@ -81,7 +97,11 @@ def create_app(
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
-        if request.url.path == "/" or request.url.path.startswith("/static/"):
+        if (
+            request.url.path == "/"
+            or request.url.path.startswith("/static/")
+            or request.url.path.startswith("/assets/")
+        ):
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; script-src 'self'; style-src 'self'; "
                 "img-src 'self' data:; connect-src 'self'; "
@@ -109,7 +129,7 @@ def create_app(
 
     @application.get("/", include_in_schema=False)
     def dashboard():
-        return FileResponse(UI_DIRECTORY / "index.html")
+        return FileResponse(ui_directory / "index.html")
 
     @application.get(
         "/api/v1/accounts",

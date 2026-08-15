@@ -1,0 +1,463 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { FormEvent } from 'react'
+
+import { api } from './api'
+import type {
+  Account,
+  Category,
+  ChatMessage,
+  Preferences,
+  Summary,
+  Transaction,
+  TransactionDraft,
+  TransactionType,
+} from './types'
+
+const TOKEN_KEY = 'finance_api_token'
+const THREAD_KEY = 'finance_chat_thread'
+const INITIAL_TOKEN = sessionStorage.getItem(TOKEN_KEY) || ''
+const today = () => new Date().toISOString().slice(0, 10)
+
+function messageFrom(error: unknown) {
+  return error instanceof Error ? error.message : 'An unexpected error occurred.'
+}
+
+function formatMoney(value: number, currency = 'INR') {
+  try {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 2,
+    }).format(value)
+  } catch {
+    return `${currency} ${value.toLocaleString('en-IN')}`
+  }
+}
+
+function formatDate(value: string | null) {
+  if (!value) return '—'
+  return new Intl.DateTimeFormat('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(`${value}T00:00:00`))
+}
+
+function summaryPath(startDate: string, endDate: string) {
+  const params = new URLSearchParams()
+  if (startDate) params.set('start_date', startDate)
+  if (endDate) params.set('end_date', endDate)
+  return `/api/v1/summary${params.size ? `?${params}` : ''}`
+}
+
+function emptyTransaction(accountId = ''): TransactionDraft {
+  return {
+    account_id: accountId,
+    category_id: '',
+    transaction_type: 'expense',
+    amount: '',
+    description: '',
+    transaction_date: today(),
+    merchant: '',
+    notes: '',
+  }
+}
+
+const defaultPreferences: Preferences = {
+  language: 'English',
+  currency: 'INR',
+  monthly_income: null,
+  risk_preference: null,
+  notification_enabled: true,
+}
+
+function App() {
+  const [token, setToken] = useState(INITIAL_TOKEN)
+  const [tokenInput, setTokenInput] = useState(INITIAL_TOKEN)
+  const [tokenVisible, setTokenVisible] = useState(false)
+  const [connected, setConnected] = useState(false)
+  const [checkingSession, setCheckingSession] = useState(Boolean(INITIAL_TOKEN))
+  const [authError, setAuthError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const [summary, setSummary] = useState<Summary | null>(null)
+  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [preferences, setPreferences] = useState(defaultPreferences)
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [lastUpdated, setLastUpdated] = useState('Not synced yet')
+
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [draft, setDraft] = useState<TransactionDraft>(emptyTransaction())
+  const dialogRef = useRef<HTMLDialogElement>(null)
+
+  const [chatQuestion, setChatQuestion] = useState('')
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    { id: 'welcome', text: 'Hi — ask me about your income, spending, savings, or categories.', user: false },
+  ])
+  const [chatBusy, setChatBusy] = useState(false)
+  const [toast, setToast] = useState<{ message: string; error: boolean } | null>(null)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const notify = useCallback((message: string, error = false) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    setToast({ message, error })
+    toastTimer.current = setTimeout(() => setToast(null), 4200)
+  }, [])
+
+  const loadDashboard = useCallback(async (
+    authToken: string,
+    filters: { start: string; end: string },
+  ) => {
+    const [nextSummary, nextTransactions, nextAccounts, nextCategories, nextPreferences] = await Promise.all([
+      api<Summary>(authToken, summaryPath(filters.start, filters.end)),
+      api<Transaction[]>(authToken, '/api/v1/transactions?limit=50'),
+      api<Account[]>(authToken, '/api/v1/accounts'),
+      api<Category[]>(authToken, '/api/v1/categories'),
+      api<Preferences>(authToken, '/api/v1/preferences'),
+    ])
+    setSummary(nextSummary)
+    setTransactions(nextTransactions)
+    setAccounts(nextAccounts)
+    setCategories(nextCategories)
+    setPreferences(nextPreferences)
+    setLastUpdated(`Updated ${new Intl.DateTimeFormat('en-IN', {
+      hour: 'numeric', minute: '2-digit',
+    }).format(new Date())}`)
+  }, [])
+
+  useEffect(() => {
+    if (!INITIAL_TOKEN) return
+    void loadDashboard(INITIAL_TOKEN, { start: '', end: '' })
+      .then(() => setConnected(true))
+      .catch((error: unknown) => {
+        sessionStorage.removeItem(TOKEN_KEY)
+        setToken('')
+        setTokenInput('')
+        setAuthError(messageFrom(error))
+      })
+      .finally(() => setCheckingSession(false))
+  }, [loadDashboard])
+
+  useEffect(() => {
+    if (dialogOpen && dialogRef.current && !dialogRef.current.open) {
+      dialogRef.current.showModal()
+    }
+  }, [dialogOpen])
+
+  const currency = summary?.currency || preferences.currency || 'INR'
+  const rate = summary && summary.income > 0
+    ? (summary.savings / summary.income) * 100
+    : 0
+  const chartMaximum = Math.max(summary?.income || 0, summary?.expenses || 0, 1)
+  const periodLabel = summary?.start_date || summary?.end_date
+    ? `${summary?.start_date ? formatDate(summary.start_date) : 'Start'} — ${summary?.end_date ? formatDate(summary.end_date) : 'Today'}`
+    : 'All time'
+  const greeting = new Date().getHours() < 12
+    ? 'morning'
+    : new Date().getHours() < 17 ? 'afternoon' : 'evening'
+
+  const topCategories = useMemo(() => {
+    const totals = new Map<string, number>()
+    transactions.filter((item) => item.transaction_type === 'expense').forEach((item) => {
+      const name = item.category || 'Uncategorized'
+      totals.set(name, (totals.get(name) || 0) + item.amount)
+    })
+    return [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4)
+  }, [transactions])
+
+  const availableCategories = categories.filter(
+    (category) => category.category_type === draft.transaction_type,
+  )
+
+  async function connect(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const candidate = tokenInput.trim()
+    setAuthError('')
+    setBusy(true)
+    try {
+      await loadDashboard(candidate, { start: '', end: '' })
+      sessionStorage.setItem(TOKEN_KEY, candidate)
+      setToken(candidate)
+      setConnected(true)
+    } catch (error) {
+      setAuthError(messageFrom(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function signOut() {
+    sessionStorage.removeItem(TOKEN_KEY)
+    sessionStorage.removeItem(THREAD_KEY)
+    setToken('')
+    setTokenInput('')
+    setConnected(false)
+    notify('Signed out of this browser session.')
+  }
+
+  async function refreshDashboard() {
+    setBusy(true)
+    try {
+      await loadDashboard(token, { start: startDate, end: endDate })
+      notify('Dashboard refreshed.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function applyDates(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    try {
+      setSummary(await api<Summary>(token, summaryPath(startDate, endDate)))
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function clearDates() {
+    setStartDate('')
+    setEndDate('')
+    try {
+      setSummary(await api<Summary>(token, '/api/v1/summary'))
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  function openAddTransaction() {
+    if (!accounts.length) {
+      notify('Create an account before adding a transaction.', true)
+      return
+    }
+    setEditingId(null)
+    setDraft(emptyTransaction(String(accounts[0].id)))
+    setDialogOpen(true)
+  }
+
+  function openEditTransaction(transaction: Transaction) {
+    setEditingId(transaction.id)
+    setDraft({
+      account_id: String(transaction.account_id),
+      category_id: transaction.category_id ? String(transaction.category_id) : '',
+      transaction_type: transaction.transaction_type,
+      amount: String(transaction.amount),
+      description: transaction.description || '',
+      transaction_date: transaction.transaction_date,
+      merchant: transaction.merchant || '',
+      notes: transaction.notes || '',
+    })
+    setDialogOpen(true)
+  }
+
+  function closeTransactionDialog() {
+    if (dialogRef.current?.open) dialogRef.current.close()
+    setDialogOpen(false)
+  }
+
+  async function saveTransaction(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    const payload = {
+      account_id: Number(draft.account_id),
+      category_id: draft.category_id ? Number(draft.category_id) : null,
+      transaction_type: draft.transaction_type,
+      amount: Number(draft.amount),
+      description: draft.description.trim() || null,
+      transaction_date: draft.transaction_date || null,
+      merchant: draft.merchant.trim() || null,
+      notes: draft.notes.trim() || null,
+    }
+    try {
+      await api<{ id: number }>(
+        token,
+        editingId ? `/api/v1/transactions/${editingId}` : '/api/v1/transactions',
+        { method: editingId ? 'PUT' : 'POST', body: JSON.stringify(payload) },
+      )
+      const wasEditing = editingId !== null
+      closeTransactionDialog()
+      await loadDashboard(token, { start: startDate, end: endDate })
+      const label = draft.transaction_type[0].toUpperCase() + draft.transaction_type.slice(1)
+      notify(`${label} ${formatMoney(Number(draft.amount), currency)} ${wasEditing ? 'updated' : 'saved'}.`)
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteTransaction(transaction: Transaction) {
+    const label = transaction.description || transaction.merchant || 'this transaction'
+    if (!globalThis.confirm(`Delete ${label}? This cannot be undone.`)) return
+    try {
+      await api<null>(token, `/api/v1/transactions/${transaction.id}`, { method: 'DELETE' })
+      await loadDashboard(token, { start: startDate, end: endDate })
+      notify('Transaction deleted and account balance updated.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function savePreferences(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      const updated = await api<Preferences>(token, '/api/v1/preferences', {
+        method: 'PUT',
+        body: JSON.stringify({
+          ...preferences,
+          currency: preferences.currency.trim().toUpperCase(),
+          risk_preference: preferences.risk_preference || null,
+        }),
+      })
+      setPreferences(updated)
+      await loadDashboard(token, { start: startDate, end: endDate })
+      notify('Preferences updated.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function sendChat(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const question = chatQuestion.trim()
+    if (!question) return
+    const userMessage: ChatMessage = { id: crypto.randomUUID(), text: question, user: true }
+    const pendingId = crypto.randomUUID()
+    setChatMessages((current) => [...current, userMessage, { id: pendingId, text: 'Thinking…', user: false }])
+    setChatQuestion('')
+    setChatBusy(true)
+    try {
+      let threadId = sessionStorage.getItem(THREAD_KEY)
+      if (!threadId) {
+        threadId = `web-${crypto.randomUUID()}`
+        sessionStorage.setItem(THREAD_KEY, threadId)
+      }
+      const response = await api<{ answer: string }>(token, '/api/v1/chat', {
+        method: 'POST',
+        body: JSON.stringify({ thread_id: threadId, question }),
+      })
+      setChatMessages((current) => current.map((message) => (
+        message.id === pendingId ? { ...message, text: response.answer } : message
+      )))
+    } catch (error) {
+      setChatMessages((current) => current.map((message) => (
+        message.id === pendingId
+          ? { ...message, text: `I couldn't answer that: ${messageFrom(error)}` }
+          : message
+      )))
+    } finally {
+      setChatBusy(false)
+    }
+  }
+
+  if (checkingSession) {
+    return <div className="loading-screen"><div><div className="brand-mark">ख</div><p>Opening your private workspace…</p></div></div>
+  }
+
+  if (!connected) {
+    return (
+      <>
+        <div className="ambient ambient-one" />
+        <div className="ambient ambient-two" />
+        <section className="auth-view" aria-labelledby="auth-title">
+          <div className="auth-card">
+            <div className="brand-mark" aria-hidden="true">ख</div>
+            <p className="eyebrow">Private finance workspace</p>
+            <h1 id="auth-title">Welcome to Khata</h1>
+            <p className="auth-copy">Your financial picture, thoughtfully organized and securely yours.</p>
+            <form className="auth-form" onSubmit={connect}>
+              <label htmlFor="api-token">API bearer token</label>
+              <div className="token-field">
+                <input id="api-token" type={tokenVisible ? 'text' : 'password'} minLength={32} required autoComplete="off" placeholder="Paste your generated token" value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} />
+                <button className="icon-button" type="button" aria-label={tokenVisible ? 'Hide token' : 'Show token'} onClick={() => setTokenVisible((visible) => !visible)}>{tokenVisible ? 'Hide' : 'Show'}</button>
+              </div>
+              <button className="primary-button full-button" type="submit" disabled={busy}><span>Open dashboard</span><span aria-hidden="true">→</span></button>
+            </form>
+            <p className="auth-help">Your token stays in this browser tab and is cleared when you sign out.</p>
+            {authError && <div className="inline-error" role="alert">{authError}</div>}
+          </div>
+        </section>
+        {toast && <div className={`toast${toast.error ? ' error' : ''}`} role="status">{toast.message}</div>}
+      </>
+    )
+  }
+
+  return (
+    <>
+      <div className="ambient ambient-one" /><div className="ambient ambient-two" />
+      <div className="app-shell">
+        <aside className="sidebar">
+          <a className="brand" href="#overview" aria-label="Khata dashboard home"><span className="brand-mark small" aria-hidden="true">ख</span><span><strong>Khata</strong><small>Personal finance</small></span></a>
+          <nav className="nav-list" aria-label="Dashboard navigation">
+            <a className="nav-item active" href="#overview"><span aria-hidden="true">⌂</span> Overview</a>
+            <a className="nav-item" href="#transactions"><span aria-hidden="true">↕</span> Transactions</a>
+            <a className="nav-item" href="#accounts"><span aria-hidden="true">▣</span> Accounts</a>
+            <a className="nav-item" href="#assistant"><span aria-hidden="true">✦</span> Assistant</a>
+            <a className="nav-item" href="#preferences"><span aria-hidden="true">⚙</span> Preferences</a>
+          </nav>
+          <div className="sidebar-footer"><div className="secure-note"><span className="status-dot" /><span><strong>Private session</strong><small>Encrypted in transit when served over HTTPS</small></span></div><button className="text-button" type="button" onClick={signOut}>Sign out</button></div>
+        </aside>
+
+        <main className="main-content">
+          <header className="topbar">
+            <div><p className="eyebrow">Financial command center</p><h1>Good {greeting}.</h1></div>
+            <div className="topbar-actions"><span className="last-updated">{lastUpdated}</span><button className="secondary-button" type="button" disabled={busy} onClick={() => void refreshDashboard()}>↻ Refresh</button><button className="primary-button" type="button" onClick={openAddTransaction}>＋ Add transaction</button></div>
+          </header>
+
+          <section id="overview" className="section-block" aria-labelledby="overview-title">
+            <div className="section-heading"><div><p className="eyebrow">Overview</p><h2 id="overview-title">Your money, in focus</h2></div><form className="date-filter" onSubmit={applyDates}><label>From<input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label>To<input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label><button className="secondary-button" type="submit">Apply</button><button className="text-button" type="button" onClick={() => void clearDates()}>Clear</button></form></div>
+            <div className="metric-grid">
+              <article className="metric-card metric-primary"><span className="metric-label">Net savings</span><strong className="metric-value">{summary ? formatMoney(summary.savings, currency) : '—'}</strong><span className="metric-caption">{summary && summary.savings < 0 ? 'Expenses exceed income' : 'Income minus expenses'}</span><div className="metric-orbit" aria-hidden="true" /></article>
+              <article className="metric-card"><span className="metric-icon income" aria-hidden="true">↗</span><span className="metric-label">Total income</span><strong className="metric-value">{summary ? formatMoney(summary.income, currency) : '—'}</strong><span className="metric-caption">Money coming in</span></article>
+              <article className="metric-card"><span className="metric-icon expense" aria-hidden="true">↘</span><span className="metric-label">Total expenses</span><strong className="metric-value">{summary ? formatMoney(summary.expenses, currency) : '—'}</strong><span className="metric-caption">Money going out</span></article>
+              <article className="metric-card"><span className="metric-icon ratio" aria-hidden="true">%</span><span className="metric-label">Savings rate</span><strong className="metric-value">{rate.toFixed(1)}%</strong><span className="metric-caption">Of total income retained</span></article>
+            </div>
+            <div className="insight-grid">
+              <article className="panel cashflow-panel"><div className="panel-heading"><div><p className="eyebrow">Cash flow</p><h3>Income vs spending</h3></div><span className="pill">{periodLabel}</span></div><div className="flow-chart" aria-label="Income and expense comparison"><div className="flow-row"><span>Income</span><div className="flow-track"><progress className="flow-bar income-bar" max="100" value={Math.max(2, ((summary?.income || 0) / chartMaximum) * 100)} /></div><strong>{formatMoney(summary?.income || 0, currency)}</strong></div><div className="flow-row"><span>Expenses</span><div className="flow-track"><progress className="flow-bar expense-bar" max="100" value={Math.max(2, ((summary?.expenses || 0) / chartMaximum) * 100)} /></div><strong>{formatMoney(summary?.expenses || 0, currency)}</strong></div></div><div className="insight-note">{summary && summary.savings < 0 ? `Spending exceeded income by ${formatMoney(Math.abs(summary.savings), currency)}.` : `You retained ${rate.toFixed(1)}% of income in this period.`}</div></article>
+              <article className="panel category-panel"><div className="panel-heading"><div><p className="eyebrow">Spending mix</p><h3>Top categories</h3></div></div><div className="category-list">{topCategories.length ? topCategories.map(([name, total]) => <div className="category-row" key={name}><span>{name}</span><strong>{formatMoney(total, currency)}</strong><div className="category-track"><progress className="category-progress" max={topCategories[0][1]} value={total} /></div></div>) : <p className="empty-state">No expense data yet.</p>}</div></article>
+            </div>
+          </section>
+
+          <section id="transactions" className="section-block" aria-labelledby="transactions-title">
+            <div className="section-heading"><div><p className="eyebrow">Activity</p><h2 id="transactions-title">Recent transactions</h2></div><button className="secondary-button" type="button" onClick={openAddTransaction}>Add transaction</button></div>
+            <div className="table-panel"><div className="table-scroll"><table><thead><tr><th>Description</th><th>Category</th><th>Account</th><th>Date</th><th className="amount-cell">Amount</th><th className="actions-heading">Actions</th></tr></thead><tbody>{transactions.length ? transactions.map((transaction) => {
+              const label = transaction.description || transaction.merchant || 'Transaction'
+              const sign = transaction.transaction_type === 'income' ? '+' : transaction.transaction_type === 'expense' ? '−' : ''
+              return <tr key={transaction.id}><td data-label="Description"><div className="transaction-name"><span className="transaction-badge">{transaction.transaction_type === 'income' ? '↗' : '↘'}</span><span>{label}</span></div></td><td data-label="Category"><span className="category-tag">{transaction.category || 'Uncategorized'}</span></td><td data-label="Account">{transaction.account}</td><td data-label="Date">{formatDate(transaction.transaction_date)}</td><td data-label="Amount" className={`amount-cell amount-${transaction.transaction_type}`}>{sign}{formatMoney(transaction.amount, currency)}</td><td data-label="Actions" className="transaction-actions"><div className="row-actions"><button className="row-action edit-action" type="button" title="Edit transaction" aria-label={`Edit ${label}`} onClick={() => openEditTransaction(transaction)}>✎</button><button className="row-action delete-action" type="button" title="Delete transaction" aria-label={`Delete ${label}`} onClick={() => void deleteTransaction(transaction)}>🗑</button></div></td></tr>
+            }) : <tr><td colSpan={6} className="empty-state">No transactions found.</td></tr>}</tbody></table></div></div>
+          </section>
+
+          <section id="accounts" className="section-block" aria-labelledby="accounts-title"><div className="section-heading"><div><p className="eyebrow">Connected money</p><h2 id="accounts-title">Accounts</h2></div></div><div className="account-grid">{accounts.length ? accounts.map((account) => <article className="account-card" key={account.id}><small>{account.account_type} · {account.institution || 'Personal'}</small><h3>{account.name}</h3><strong>{formatMoney(account.balance, account.currency)}</strong></article>) : <p className="empty-state">No active accounts found.</p>}</div></section>
+
+          <section id="assistant" className="section-block assistant-section" aria-labelledby="assistant-title"><div className="assistant-intro"><span className="assistant-spark" aria-hidden="true">✦</span><p className="eyebrow">AI finance assistant</p><h2 id="assistant-title">Ask your money a question</h2><p>Get grounded answers based only on your financial data.</p><div className="prompt-chips" aria-label="Suggested questions">{['How much did I spend?', 'What are my total savings?', 'How much did I spend on food?'].map((question) => <button type="button" key={question} onClick={() => setChatQuestion(question)}>{question}</button>)}</div></div><div className="chat-card"><div className="chat-messages" aria-live="polite">{chatMessages.map((message) => <div key={message.id} className={`message ${message.user ? 'user-message' : 'assistant-message'}`}>{!message.user && <span className="avatar">ख</span>}<p>{message.text}</p></div>)}</div><form className="chat-form" onSubmit={sendChat}><label className="sr-only" htmlFor="chat-question">Ask a financial question</label><textarea id="chat-question" rows={1} maxLength={2000} required placeholder="Ask about your finances…" value={chatQuestion} onChange={(event) => setChatQuestion(event.target.value)} /><button className="send-button" type="submit" aria-label="Send question" disabled={chatBusy}>↑</button></form></div></section>
+
+          <section id="preferences" className="section-block" aria-labelledby="preferences-title"><div className="section-heading"><div><p className="eyebrow">Personalization</p><h2 id="preferences-title">Preferences</h2></div></div><form className="panel preferences-form" onSubmit={savePreferences}><label>Language<input maxLength={50} required value={preferences.language} onChange={(event) => setPreferences({ ...preferences, language: event.target.value })} /></label><label>Currency<input maxLength={3} required value={preferences.currency} onChange={(event) => setPreferences({ ...preferences, currency: event.target.value })} /></label><label>Monthly income<input type="number" min="1" step="0.01" placeholder="Optional" value={preferences.monthly_income ?? ''} onChange={(event) => setPreferences({ ...preferences, monthly_income: event.target.value ? Number(event.target.value) : null })} /></label><label>Risk preference<select value={preferences.risk_preference || ''} onChange={(event) => setPreferences({ ...preferences, risk_preference: event.target.value || null })}><option value="">Not set</option><option value="conservative">Conservative</option><option value="moderate">Moderate</option><option value="aggressive">Aggressive</option></select></label><label className="toggle-label"><input type="checkbox" checked={preferences.notification_enabled} onChange={(event) => setPreferences({ ...preferences, notification_enabled: event.target.checked })} /><span className="toggle-control" /><span>Notifications enabled</span></label><button className="primary-button" type="submit" disabled={busy}>Save preferences</button></form></section>
+        </main>
+      </div>
+
+      <dialog ref={dialogRef} className="modal transaction-dialog" onCancel={() => setDialogOpen(false)} onClose={() => setDialogOpen(false)}>
+        <form onSubmit={saveTransaction}><div className="modal-heading"><div><p className="eyebrow">{editingId ? 'Update activity' : 'New activity'}</p><h2>{editingId ? 'Edit transaction' : 'Add transaction'}</h2></div><button className="icon-button" type="button" aria-label="Close" onClick={closeTransactionDialog}>×</button></div><div className="form-grid">
+          <label>Type<select required value={draft.transaction_type} onChange={(event) => setDraft({ ...draft, transaction_type: event.target.value as TransactionType, category_id: '' })}><option value="expense">Expense</option><option value="income">Income</option><option value="transfer">Transfer</option></select></label>
+          <label>Amount<input type="number" min="0.01" step="0.01" required placeholder="0.00" value={draft.amount} onChange={(event) => setDraft({ ...draft, amount: event.target.value })} /></label>
+          <label>Account<select required value={draft.account_id} onChange={(event) => setDraft({ ...draft, account_id: event.target.value })}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+          <label>Category<select disabled={draft.transaction_type === 'transfer'} value={draft.category_id} onChange={(event) => setDraft({ ...draft, category_id: event.target.value })}><option value="">No category</option>{availableCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+          <label className="wide-field">Description<input maxLength={500} placeholder="What was this for?" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
+          <label>Merchant<input maxLength={255} placeholder="Optional" value={draft.merchant} onChange={(event) => setDraft({ ...draft, merchant: event.target.value })} /></label>
+          <label>Date<input type="date" value={draft.transaction_date} onChange={(event) => setDraft({ ...draft, transaction_date: event.target.value })} /></label>
+          <label className="wide-field">Notes<textarea maxLength={1000} rows={3} placeholder="Optional details" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>
+        </div><div className="modal-actions"><button className="secondary-button" type="button" onClick={closeTransactionDialog}>Cancel</button><button className="primary-button" type="submit" disabled={busy}>{editingId ? 'Update transaction' : 'Save transaction'}</button></div></form>
+      </dialog>
+      {toast && <div className={`toast${toast.error ? ' error' : ''}`} role="status">{toast.message}</div>}
+    </>
+  )
+}
+
+export default App

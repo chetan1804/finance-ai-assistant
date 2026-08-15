@@ -45,7 +45,9 @@ Build a finance assistant progressively using:
 
 ## Current Stage
 
-Step 20 — Deployment foundation complete.
+The original 20-step roadmap is complete. The next-level React frontend is
+implemented; the legacy static UI remains available as a local fallback during
+acceptance testing.
 
 ## Step 15 Features
 
@@ -144,6 +146,34 @@ Available endpoints:
 - Account balance cards
 - User preference editing
 - Context-aware finance assistant chat
+
+## Run the React Frontend
+
+Run FastAPI in one terminal:
+
+```bash
+python -m uvicorn src.api.app:create_app --factory --reload
+```
+
+Run the React development server in another terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173/`. Vite proxies `/api` and `/health` requests to
+FastAPI on port `8000`.
+
+To test the production build locally:
+
+```bash
+cd frontend
+npm run build
+cd ..
+FINANCE_UI_DIST=frontend/dist python -m uvicorn src.api.app:create_app --factory
+```
 
 ## Deployment
 

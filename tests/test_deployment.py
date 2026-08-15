@@ -61,3 +61,32 @@ def test_api_factory_initializes_an_empty_deployment_database(tmp_path):
     )
 
     assert database_path.exists()
+
+
+def test_api_serves_configured_react_build(monkeypatch, tmp_path):
+    react_dist = tmp_path / "dist"
+    assets = react_dist / "assets"
+    assets.mkdir(parents=True)
+    (react_dist / "index.html").write_text(
+        '<div id="root">React deployment</div>',
+        encoding="utf-8",
+    )
+    (assets / "app.js").write_text("console.log('react')", encoding="utf-8")
+    monkeypatch.setenv("FINANCE_UI_DIST", str(react_dist))
+
+    application = create_app(
+        service=FinanceService(tmp_path / "react.db"),
+        chat_handler=lambda **_kwargs: None,
+        authenticator=TokenAuthenticator({"x" * 32: 1}),
+        rate_limiter=InMemoryRateLimiter(requests=10),
+    )
+    client = TestClient(application)
+
+    page = client.get("/")
+    script = client.get("/assets/app.js")
+
+    assert page.status_code == 200
+    assert "React deployment" in page.text
+    assert script.status_code == 200
+    assert "default-src 'self'" in page.headers["content-security-policy"]
+from fastapi.testclient import TestClient

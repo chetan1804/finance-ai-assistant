@@ -1,7 +1,8 @@
 # Deployment
 
-The application ships as one container: FastAPI serves both the authenticated
-API and the static dashboard. SQLite finance data and LangGraph checkpoints are
+The application ships as one multi-stage container. Node builds the React
+frontend, then FastAPI serves the compiled frontend and authenticated API from
+the Python runtime image. SQLite finance data and LangGraph checkpoints are
 stored in a mounted persistent directory.
 
 ## Production requirements
