@@ -12,27 +12,22 @@ stored in a mounted persistent directory.
 - One application process and one running instance while SQLite and the
   in-memory rate limiter are in use
 - HTTPS supplied by the hosting platform or reverse proxy
-- `GROQ_API_KEY` and `FINANCE_API_TOKENS` configured as secrets
+- `GROQ_API_KEY` configured as a secret
 
 Never bake `.env`, database files, API tokens, or provider keys into an image.
 
 ## Deploy with Docker Compose
 
-Create `.env` from `.env.example`, set the provider key, and configure a bearer
-token for the first fresh-database user:
+Create `.env` from `.env.example` and set the provider key:
 
 ```bash
-python -m scripts.configure_api_token --user-id 1
 docker compose build
-docker compose run --rm finance-assistant python -m scripts.bootstrap_user \
-  --name "Your name" --email "you@example.com"
 docker compose up -d
 ```
 
-The bootstrap command is idempotent. It creates the initial user, account, and
-common transaction categories on a new volume. Confirm that it reports user ID
-`1`; if it reports another ID, regenerate `FINANCE_API_TOKENS` for that ID
-before starting the service.
+Create the first profile from the React registration screen. The optional
+`scripts.bootstrap_user` and `FINANCE_API_TOKENS` flow remains available only
+for importing an older local deployment.
 
 Verify the deployment:
 
@@ -50,13 +45,12 @@ Use the repository `Dockerfile` and configure:
 - Health-check path: `/health`
 - Container port: the platform-provided `PORT`, falling back to `8000`
 - Persistent volume mount: `/app/data`
-- Secrets: `GROQ_API_KEY` and `FINANCE_API_TOKENS`
+- Secret: `GROQ_API_KEY`
 - Instance count: `1`
 
-Run the bootstrap command once against the mounted volume before normal startup.
-The application automatically ensures the current schema exists at startup,
-but it does not perform versioned migrations or create a user unless the
-bootstrap command is run.
+The application automatically ensures the current schema exists at startup.
+Users and their first accounts are created through registration, but versioned
+database migrations are still required before horizontal production scaling.
 
 ## Storage configuration
 

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { api } from './api'
+import { api, ApiUnauthorizedError, publicApi } from './api'
 import type {
   Account,
+  AuthSession,
   Category,
   ChatMessage,
   Preferences,
@@ -15,7 +16,9 @@ import type {
 
 const TOKEN_KEY = 'finance_api_token'
 const THREAD_KEY = 'finance_chat_thread'
+const REFRESH_KEY = 'finance_refresh_token'
 const INITIAL_TOKEN = sessionStorage.getItem(TOKEN_KEY) || ''
+const INITIAL_REFRESH = sessionStorage.getItem(REFRESH_KEY) || ''
 const today = () => new Date().toISOString().slice(0, 10)
 
 function messageFrom(error: unknown) {
@@ -73,7 +76,14 @@ const defaultPreferences: Preferences = {
 
 function App() {
   const [token, setToken] = useState(INITIAL_TOKEN)
+  const tokenRef = useRef(INITIAL_TOKEN)
   const [tokenInput, setTokenInput] = useState(INITIAL_TOKEN)
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'legacy'>('login')
+  const [authName, setAuthName] = useState('')
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authCurrency, setAuthCurrency] = useState('INR')
+  const [authAccount, setAuthAccount] = useState('Main account')
   const [tokenVisible, setTokenVisible] = useState(false)
   const [connected, setConnected] = useState(false)
   const [checkingSession, setCheckingSession] = useState(Boolean(INITIAL_TOKEN))
@@ -129,18 +139,55 @@ function App() {
     }).format(new Date())}`)
   }, [])
 
+  const saveSession = useCallback((session: AuthSession) => {
+    sessionStorage.setItem(TOKEN_KEY, session.access_token)
+    sessionStorage.setItem(REFRESH_KEY, session.refresh_token)
+    setToken(session.access_token)
+    tokenRef.current = session.access_token
+    setTokenInput(session.access_token)
+  }, [])
+
+  async function authorizedApi<T>(path: string, options: RequestInit = {}) {
+    try {
+      return await api<T>(tokenRef.current, path, options)
+    } catch (error) {
+      const refreshToken = sessionStorage.getItem(REFRESH_KEY)
+      if (!(error instanceof ApiUnauthorizedError) || !refreshToken) throw error
+      const session = await publicApi<AuthSession>('/api/v1/auth/refresh', {
+        method: 'POST',
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      })
+      saveSession(session)
+      return api<T>(session.access_token, path, options)
+    }
+  }
+
   useEffect(() => {
     if (!INITIAL_TOKEN) return
-    void loadDashboard(INITIAL_TOKEN, { start: '', end: '' })
-      .then(() => setConnected(true))
-      .catch((error: unknown) => {
+    const restore = async () => {
+      try {
+        await loadDashboard(INITIAL_TOKEN, { start: '', end: '' })
+        setConnected(true)
+      } catch (initialError) {
+        if (!INITIAL_REFRESH) throw initialError
+        const session = await publicApi<AuthSession>('/api/v1/auth/refresh', {
+          method: 'POST',
+          body: JSON.stringify({ refresh_token: INITIAL_REFRESH }),
+        })
+        saveSession(session)
+        await loadDashboard(session.access_token, { start: '', end: '' })
+        setConnected(true)
+      }
+    }
+    void restore().catch((error: unknown) => {
         sessionStorage.removeItem(TOKEN_KEY)
+        sessionStorage.removeItem(REFRESH_KEY)
         setToken('')
         setTokenInput('')
         setAuthError(messageFrom(error))
       })
       .finally(() => setCheckingSession(false))
-  }, [loadDashboard])
+  }, [loadDashboard, saveSession])
 
   useEffect(() => {
     if (dialogOpen && dialogRef.current && !dialogRef.current.open) {
@@ -175,13 +222,36 @@ function App() {
 
   async function connect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const candidate = tokenInput.trim()
     setAuthError('')
     setBusy(true)
     try {
-      await loadDashboard(candidate, { start: '', end: '' })
-      sessionStorage.setItem(TOKEN_KEY, candidate)
-      setToken(candidate)
+      let accessToken: string
+      if (authMode === 'legacy') {
+        accessToken = tokenInput.trim()
+        await loadDashboard(accessToken, { start: '', end: '' })
+        sessionStorage.setItem(TOKEN_KEY, accessToken)
+        sessionStorage.removeItem(REFRESH_KEY)
+        setToken(accessToken)
+        tokenRef.current = accessToken
+      } else {
+        const path = authMode === 'register' ? '/api/v1/auth/register' : '/api/v1/auth/login'
+        const body = authMode === 'register'
+          ? {
+              name: authName,
+              email: authEmail,
+              password: authPassword,
+              currency: authCurrency,
+              account_name: authAccount,
+            }
+          : { email: authEmail, password: authPassword }
+        const session = await publicApi<AuthSession>(path, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        })
+        saveSession(session)
+        accessToken = session.access_token
+        await loadDashboard(accessToken, { start: '', end: '' })
+      }
       setConnected(true)
     } catch (error) {
       setAuthError(messageFrom(error))
@@ -190,10 +260,19 @@ function App() {
     }
   }
 
-  function signOut() {
+  async function signOut() {
+    const refreshToken = sessionStorage.getItem(REFRESH_KEY)
+    if (token && refreshToken) {
+      await api<null>(tokenRef.current, '/api/v1/auth/logout', {
+        method: 'POST',
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      }).catch(() => undefined)
+    }
     sessionStorage.removeItem(TOKEN_KEY)
+    sessionStorage.removeItem(REFRESH_KEY)
     sessionStorage.removeItem(THREAD_KEY)
     setToken('')
+    tokenRef.current = ''
     setTokenInput('')
     setConnected(false)
     notify('Signed out of this browser session.')
@@ -202,7 +281,7 @@ function App() {
   async function refreshDashboard() {
     setBusy(true)
     try {
-      await loadDashboard(token, { start: startDate, end: endDate })
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
       notify('Dashboard refreshed.')
     } catch (error) {
       notify(messageFrom(error), true)
@@ -214,7 +293,7 @@ function App() {
   async function applyDates(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     try {
-      setSummary(await api<Summary>(token, summaryPath(startDate, endDate)))
+      setSummary(await authorizedApi<Summary>(summaryPath(startDate, endDate)))
     } catch (error) {
       notify(messageFrom(error), true)
     }
@@ -224,7 +303,7 @@ function App() {
     setStartDate('')
     setEndDate('')
     try {
-      setSummary(await api<Summary>(token, '/api/v1/summary'))
+      setSummary(await authorizedApi<Summary>('/api/v1/summary'))
     } catch (error) {
       notify(messageFrom(error), true)
     }
@@ -274,14 +353,13 @@ function App() {
       notes: draft.notes.trim() || null,
     }
     try {
-      await api<{ id: number }>(
-        token,
+      await authorizedApi<{ id: number }>(
         editingId ? `/api/v1/transactions/${editingId}` : '/api/v1/transactions',
         { method: editingId ? 'PUT' : 'POST', body: JSON.stringify(payload) },
       )
       const wasEditing = editingId !== null
       closeTransactionDialog()
-      await loadDashboard(token, { start: startDate, end: endDate })
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
       const label = draft.transaction_type[0].toUpperCase() + draft.transaction_type.slice(1)
       notify(`${label} ${formatMoney(Number(draft.amount), currency)} ${wasEditing ? 'updated' : 'saved'}.`)
     } catch (error) {
@@ -295,8 +373,8 @@ function App() {
     const label = transaction.description || transaction.merchant || 'this transaction'
     if (!globalThis.confirm(`Delete ${label}? This cannot be undone.`)) return
     try {
-      await api<null>(token, `/api/v1/transactions/${transaction.id}`, { method: 'DELETE' })
-      await loadDashboard(token, { start: startDate, end: endDate })
+      await authorizedApi<null>(`/api/v1/transactions/${transaction.id}`, { method: 'DELETE' })
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
       notify('Transaction deleted and account balance updated.')
     } catch (error) {
       notify(messageFrom(error), true)
@@ -307,7 +385,7 @@ function App() {
     event.preventDefault()
     setBusy(true)
     try {
-      const updated = await api<Preferences>(token, '/api/v1/preferences', {
+      const updated = await authorizedApi<Preferences>('/api/v1/preferences', {
         method: 'PUT',
         body: JSON.stringify({
           ...preferences,
@@ -316,7 +394,7 @@ function App() {
         }),
       })
       setPreferences(updated)
-      await loadDashboard(token, { start: startDate, end: endDate })
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
       notify('Preferences updated.')
     } catch (error) {
       notify(messageFrom(error), true)
@@ -340,7 +418,7 @@ function App() {
         threadId = `web-${crypto.randomUUID()}`
         sessionStorage.setItem(THREAD_KEY, threadId)
       }
-      const response = await api<{ answer: string }>(token, '/api/v1/chat', {
+      const response = await authorizedApi<{ answer: string }>('/api/v1/chat', {
         method: 'POST',
         body: JSON.stringify({ thread_id: threadId, question }),
       })
@@ -368,20 +446,25 @@ function App() {
         <div className="ambient ambient-one" />
         <div className="ambient ambient-two" />
         <section className="auth-view" aria-labelledby="auth-title">
-          <div className="auth-card">
+          <div className="auth-card auth-card-onboarding">
             <div className="brand-mark" aria-hidden="true">ख</div>
             <p className="eyebrow">Private finance workspace</p>
             <h1 id="auth-title">Welcome to Khata</h1>
             <p className="auth-copy">Your financial picture, thoughtfully organized and securely yours.</p>
+            <div className="auth-tabs" role="tablist" aria-label="Authentication method">
+              <button type="button" role="tab" aria-selected={authMode === 'login'} className={authMode === 'login' ? 'active' : ''} onClick={() => setAuthMode('login')}>Sign in</button>
+              <button type="button" role="tab" aria-selected={authMode === 'register'} className={authMode === 'register' ? 'active' : ''} onClick={() => setAuthMode('register')}>Create account</button>
+            </div>
             <form className="auth-form" onSubmit={connect}>
-              <label htmlFor="api-token">API bearer token</label>
-              <div className="token-field">
-                <input id="api-token" type={tokenVisible ? 'text' : 'password'} minLength={32} required autoComplete="off" placeholder="Paste your generated token" value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} />
-                <button className="icon-button" type="button" aria-label={tokenVisible ? 'Hide token' : 'Show token'} onClick={() => setTokenVisible((visible) => !visible)}>{tokenVisible ? 'Hide' : 'Show'}</button>
-              </div>
-              <button className="primary-button full-button" type="submit" disabled={busy}><span>Open dashboard</span><span aria-hidden="true">→</span></button>
+              {authMode === 'register' && <label htmlFor="auth-name">Name<input id="auth-name" maxLength={100} required autoComplete="name" value={authName} onChange={(event) => setAuthName(event.target.value)} /></label>}
+              {authMode !== 'legacy' && <label htmlFor="auth-email">Email<input id="auth-email" type="email" maxLength={254} required autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} /></label>}
+              {authMode !== 'legacy' && <label htmlFor="auth-password">Password<div className="token-field"><input id="auth-password" type={tokenVisible ? 'text' : 'password'} minLength={12} maxLength={128} required autoComplete={authMode === 'register' ? 'new-password' : 'current-password'} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /><button className="icon-button" type="button" aria-label={tokenVisible ? 'Hide password' : 'Show password'} onClick={() => setTokenVisible((visible) => !visible)}>{tokenVisible ? 'Hide' : 'Show'}</button></div></label>}
+              {authMode === 'register' && <div className="auth-onboarding-fields"><label htmlFor="auth-currency">Currency<input id="auth-currency" minLength={3} maxLength={3} required value={authCurrency} onChange={(event) => setAuthCurrency(event.target.value.toUpperCase())} /></label><label htmlFor="auth-account">First account<input id="auth-account" maxLength={100} required value={authAccount} onChange={(event) => setAuthAccount(event.target.value)} /></label></div>}
+              {authMode === 'legacy' && <label htmlFor="api-token">API bearer token<div className="token-field"><input id="api-token" type={tokenVisible ? 'text' : 'password'} minLength={32} required autoComplete="off" placeholder="Paste your generated token" value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} /><button className="icon-button" type="button" aria-label={tokenVisible ? 'Hide token' : 'Show token'} onClick={() => setTokenVisible((visible) => !visible)}>{tokenVisible ? 'Hide' : 'Show'}</button></div></label>}
+              <button className="primary-button full-button" type="submit" disabled={busy}><span>{authMode === 'register' ? 'Create my workspace' : 'Open dashboard'}</span><span aria-hidden="true">→</span></button>
             </form>
-            <p className="auth-help">Your token stays in this browser tab and is cleared when you sign out.</p>
+            <button className="text-button auth-legacy" type="button" onClick={() => setAuthMode(authMode === 'legacy' ? 'login' : 'legacy')}>{authMode === 'legacy' ? 'Use email and password' : 'Use a legacy API token'}</button>
+            <p className="auth-help">Sessions stay in this browser tab and are cleared when you sign out.</p>
             {authError && <div className="inline-error" role="alert">{authError}</div>}
           </div>
         </section>
@@ -403,7 +486,7 @@ function App() {
             <a className="nav-item" href="#assistant"><span aria-hidden="true">✦</span> Assistant</a>
             <a className="nav-item" href="#preferences"><span aria-hidden="true">⚙</span> Preferences</a>
           </nav>
-          <div className="sidebar-footer"><div className="secure-note"><span className="status-dot" /><span><strong>Private session</strong><small>Encrypted in transit when served over HTTPS</small></span></div><button className="text-button" type="button" onClick={signOut}>Sign out</button></div>
+          <div className="sidebar-footer"><div className="secure-note"><span className="status-dot" /><span><strong>Private session</strong><small>Encrypted in transit when served over HTTPS</small></span></div><button className="text-button" type="button" onClick={() => void signOut()}>Sign out</button></div>
         </aside>
 
         <main className="main-content">

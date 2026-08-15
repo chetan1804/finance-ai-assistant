@@ -5,17 +5,28 @@ import { describe, expect, it } from 'vitest'
 import App from './App'
 
 describe('App authentication screen', () => {
-  it('keeps the bearer token masked until the user reveals it', async () => {
+  it('keeps the password masked until the user reveals it', async () => {
     const user = userEvent.setup()
     render(<App />)
 
-    const token = screen.getByLabelText('API bearer token')
+    const password = screen.getByLabelText('Password')
     expect(screen.getByRole('heading', { name: 'Welcome to Khata' })).toBeInTheDocument()
-    expect(token).toHaveAttribute('type', 'password')
+    expect(password).toHaveAttribute('type', 'password')
 
-    await user.click(screen.getByRole('button', { name: 'Show token' }))
+    await user.click(screen.getByRole('button', { name: 'Show password' }))
 
-    expect(token).toHaveAttribute('type', 'text')
-    expect(screen.getByRole('button', { name: 'Hide token' })).toBeInTheDocument()
+    expect(password).toHaveAttribute('type', 'text')
+    expect(screen.getByRole('button', { name: 'Hide password' })).toBeInTheDocument()
+  })
+
+  it('offers first-account onboarding during registration', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('tab', { name: 'Create account' }))
+
+    expect(screen.getByLabelText('Name')).toBeInTheDocument()
+    expect(screen.getByLabelText('Currency')).toHaveValue('INR')
+    expect(screen.getByLabelText('First account')).toHaveValue('Main account')
   })
 })

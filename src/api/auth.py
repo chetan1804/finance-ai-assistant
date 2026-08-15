@@ -15,8 +15,9 @@ bearer_scheme = HTTPBearer(auto_error=False)
 class TokenAuthenticator:
     """Map opaque bearer tokens to server-controlled user identities."""
 
-    def __init__(self, token_users: dict[str, int]):
-        if not token_users:
+    def __init__(self, token_users: dict[str, int] | None = None, auth_service=None):
+        token_users = token_users or {}
+        if not token_users and auth_service is None:
             raise ValueError("At least one API token must be configured.")
 
         validated = []
@@ -25,15 +26,14 @@ class TokenAuthenticator:
                 raise ValueError("API tokens must contain at least 32 characters.")
             validated.append((token, validate_positive_id(user_id, "user_id")))
         self._token_users = tuple(validated)
+        self._auth_service = auth_service
 
     @classmethod
-    def from_environment(cls):
+    def from_environment(cls, auth_service=None):
         load_dotenv()
         raw_tokens = os.getenv("FINANCE_API_TOKENS")
         if not raw_tokens:
-            raise RuntimeError(
-                "FINANCE_API_TOKENS must be configured as a JSON token-to-user map."
-            )
+            return cls({}, auth_service=auth_service)
 
         try:
             token_users = json.loads(raw_tokens)
@@ -42,7 +42,7 @@ class TokenAuthenticator:
 
         if not isinstance(token_users, dict):
             raise RuntimeError("FINANCE_API_TOKENS must contain a JSON object.")
-        return cls(token_users)
+        return cls(token_users, auth_service=auth_service)
 
     def authenticate(
         self,
@@ -55,6 +55,12 @@ class TokenAuthenticator:
 
         for token, user_id in self._token_users:
             if secrets.compare_digest(credentials.credentials, token):
+                return user_id
+        if self._auth_service is not None:
+            user_id = self._auth_service.authenticate_access_token(
+                credentials.credentials
+            )
+            if user_id is not None:
                 return user_id
         raise self._unauthorized()
 

@@ -100,15 +100,9 @@ and secret-handling guidance.
 
 ## Run the API
 
-Keep your existing `.env` and generate a bearer token mapped to an existing
-database user ID:
-
-```bash
-python -m scripts.configure_api_token --user-id 1
-```
-
-The command preserves existing provider keys and prints the new bearer token
-once. Store it securely.
+Keep your provider key in `.env`. Users now create an account and sign in with
+email and password; manually configured bearer tokens remain available only as
+a migration fallback.
 
 Start the local server:
 
@@ -119,13 +113,16 @@ python -m uvicorn src.api.app:create_app --factory --reload
 Open `http://127.0.0.1:8000/docs` for the interactive API documentation. Send
 the configured token as `Authorization: Bearer <token>`.
 
-Open `http://127.0.0.1:8000/` for the finance dashboard. Paste the generated
-bearer token into the secure session screen. The browser keeps it only in
-session storage, so signing out or closing the tab clears the session.
+Open `http://127.0.0.1:8000/` for the finance dashboard. Register with a name,
+email, password, currency, and first account, or sign into an existing profile.
 
 Available endpoints:
 
 - `GET /health`
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/logout`
 - `GET /api/v1/summary`
 - `GET /api/v1/transactions`
 - `POST /api/v1/transactions`

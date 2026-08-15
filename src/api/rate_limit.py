@@ -16,12 +16,12 @@ class InMemoryRateLimiter:
         self._events = defaultdict(deque)
         self._lock = threading.Lock()
 
-    def check(self, user_id: int):
+    def check(self, identity):
         now = time.monotonic()
         cutoff = now - self.window_seconds
 
         with self._lock:
-            events = self._events[user_id]
+            events = self._events[identity]
             while events and events[0] <= cutoff:
                 events.popleft()
 

@@ -6,3 +6,10 @@
 .loading-screen p { margin: 0; font-size: .82rem; }
 .transaction-dialog[open] { display: block; }
 .toast { border: 0; }
+.auth-card-onboarding { width: min(520px, 100%); }
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 18px; padding: 4px; border-radius: 13px; background: #ebe9e1; }
+.auth-tabs button { padding: 9px; border: 0; border-radius: 9px; color: var(--muted); background: transparent; font-size: .76rem; font-weight: 750; }
+.auth-tabs button.active { color: var(--green); background: var(--surface-solid); box-shadow: 0 3px 10px rgba(32,51,43,.08); }
+.auth-onboarding-fields { display: grid; grid-template-columns: 120px 1fr; gap: 12px; }
+.auth-legacy { display: block; margin: 12px auto 0; font-size: .72rem; }
+@media (max-width: 590px) { .auth-onboarding-fields { grid-template-columns: 1fr; } }

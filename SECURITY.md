@@ -23,14 +23,19 @@
   local storage, and removes them on sign-out.
 - Dashboard assets use a same-origin content-security policy without inline or
   third-party scripts.
+- Passwords are hashed with Argon2id and are never stored in plaintext.
+- Access and refresh tokens are random opaque values stored only as SHA-256
+  hashes in the database.
+- Access sessions expire, refresh tokens rotate on use, and logout revokes the
+  active database session.
+- Registration and login are rate-limited by client address.
 
 ## Important limitations
 
 - The CLI still accepts a user ID directly and is only suitable for trusted local
   use. Network clients must use the authenticated API.
-- The current bearer-token map is appropriate for local development and small
-  internal deployments. Production should use a dedicated identity provider,
-  expiring credentials, rotation, and revocation.
+- Email verification, password reset, MFA, compromised-password screening, and
+  account recovery are not implemented yet.
 - Existing SQLite databases do not automatically receive new constraints.
   Production deployment requires versioned database migrations.
 - SQLite files are not encrypted at rest by this project. Production storage
@@ -43,7 +48,7 @@
   must be supplied by the production platform.
 - Browser session storage remains accessible to same-origin JavaScript. Keep the
   strict content-security policy, review frontend dependencies, and avoid adding
-  third-party scripts that could access bearer tokens.
+  third-party scripts that could access access or refresh tokens.
 
 ## Secret handling
 

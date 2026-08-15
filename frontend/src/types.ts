@@ -63,3 +63,12 @@ export interface ChatMessage {
   text: string
   user: boolean
 }
+
+export interface AuthSession {
+  access_token: string
+  refresh_token: string
+  token_type: 'bearer'
+  expires_in: number
+  user_id: number
+  name: string
+}

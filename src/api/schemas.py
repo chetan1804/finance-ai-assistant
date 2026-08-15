@@ -12,6 +12,36 @@ class HealthResponse(StrictModel):
     status: Literal["ok"]
 
 
+class RegisterRequest(StrictModel):
+    name: str = Field(min_length=1, max_length=100)
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=12, max_length=128)
+    currency: str = Field(default="INR", min_length=3, max_length=3)
+    account_name: str = Field(default="Main account", min_length=1, max_length=100)
+
+
+class LoginRequest(StrictModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=12, max_length=128)
+
+
+class RefreshRequest(StrictModel):
+    refresh_token: str = Field(min_length=32, max_length=256)
+
+
+class LogoutRequest(StrictModel):
+    refresh_token: str = Field(min_length=32, max_length=256)
+
+
+class AuthResponse(StrictModel):
+    access_token: str
+    refresh_token: str
+    token_type: Literal["bearer"]
+    expires_in: int
+    user_id: int
+    name: str
+
+
 class ChatRequest(StrictModel):
     thread_id: str = Field(min_length=1, max_length=128)
     question: str = Field(min_length=1, max_length=2000)

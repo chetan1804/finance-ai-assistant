@@ -14,10 +14,15 @@ from src.api.schemas import (
     ChatRequest,
     ChatResponse,
     AccountResponse,
+    AuthResponse,
     CategoryResponse,
     HealthResponse,
+    LoginRequest,
+    LogoutRequest,
     PreferencesResponse,
     PreferencesUpdate,
+    RefreshRequest,
+    RegisterRequest,
     SummaryResponse,
     TransactionCreate,
     TransactionCreated,
@@ -25,6 +30,11 @@ from src.api.schemas import (
 )
 from src.database.db import initialize_database
 from src.database.finance_service import FinanceService
+from src.security.auth_service import (
+    AuthenticationError,
+    AuthService,
+    RegistrationError,
+)
 
 
 MAX_REQUEST_BYTES = 64 * 1024
@@ -48,18 +58,25 @@ def create_app(
     service=None,
     chat_handler=None,
     authenticator=None,
+    auth_service=None,
     rate_limiter=None,
+    auth_rate_limiter=None,
 ):
     """Create the API with injectable dependencies for deterministic tests."""
     load_dotenv()
     service = service or FinanceService()
     initialize_database(service.database_path)
+    auth_service = auth_service or AuthService(service.database_path)
     ui_directory = get_ui_directory()
     if not (ui_directory / "index.html").is_file():
         raise RuntimeError(f"Frontend build not found at {ui_directory}.")
     chat_handler = chat_handler or _default_chat_handler
-    authenticator = authenticator or TokenAuthenticator.from_environment()
+    authenticator = authenticator or TokenAuthenticator.from_environment(auth_service)
     rate_limiter = rate_limiter or InMemoryRateLimiter()
+    auth_rate_limiter = auth_rate_limiter or InMemoryRateLimiter(
+        requests=10,
+        window_seconds=60,
+    )
 
     application = FastAPI(
         title="Finance Assistant API",
@@ -117,15 +134,82 @@ def create_app(
             content={"detail": str(error)},
         )
 
+    @application.exception_handler(AuthenticationError)
+    async def authentication_error_handler(
+        _request: Request,
+        error: AuthenticationError,
+    ):
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": str(error)},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    @application.exception_handler(RegistrationError)
+    async def registration_error_handler(
+        _request: Request,
+        error: RegistrationError,
+    ):
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"detail": str(error)},
+        )
+
     def current_user(
         user_id: int = Depends(authenticator.authenticate),
     ) -> int:
         rate_limiter.check(user_id)
         return user_id
 
+    def auth_request_limit(request: Request):
+        host = request.client.host if request.client else "unknown"
+        auth_rate_limiter.check(f"auth:{host}")
+
     @application.get("/health", response_model=HealthResponse)
     def health():
         return {"status": "ok"}
+
+    @application.post(
+        "/api/v1/auth/register",
+        response_model=AuthResponse,
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(auth_request_limit)],
+    )
+    def register(payload: RegisterRequest):
+        return auth_service.register(
+            payload.name,
+            payload.email,
+            payload.password,
+            payload.currency,
+            payload.account_name,
+        )
+
+    @application.post(
+        "/api/v1/auth/login",
+        response_model=AuthResponse,
+        dependencies=[Depends(auth_request_limit)],
+    )
+    def login(payload: LoginRequest):
+        return auth_service.login(payload.email, payload.password)
+
+    @application.post(
+        "/api/v1/auth/refresh",
+        response_model=AuthResponse,
+        dependencies=[Depends(auth_request_limit)],
+    )
+    def refresh(payload: RefreshRequest):
+        return auth_service.refresh(payload.refresh_token)
+
+    @application.post(
+        "/api/v1/auth/logout",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def logout(
+        payload: LogoutRequest,
+        user_id: int = Depends(current_user),
+    ):
+        auth_service.logout(user_id, payload.refresh_token)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @application.get("/", include_in_schema=False)
     def dashboard():
