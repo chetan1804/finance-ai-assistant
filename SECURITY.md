@@ -10,6 +10,7 @@
 - Dates must use ISO `YYYY-MM-DD` format and ranges must be ordered.
 - Chat questions and thread IDs have length and character restrictions.
 - Conversation history is treated as untrusted data and limited to 20 user turns.
+- Checkpoint deserialization only permits LangGraph's safe allowlisted types.
 - LLM output is reduced to an allowlisted intent and validated dates before a
   database query is selected.
 - Financial responses are grounded in a server-side database result.
@@ -42,8 +43,9 @@
   PostgreSQL storage must provide encryption and restricted access.
 - Provider prompts and transaction data are sent to the configured LLM service.
   Production use requires an approved data-processing and retention policy.
-- The in-memory rate limiter is per process. A multi-worker deployment requires
-  a shared limiter such as Redis or an API gateway.
+- The in-memory rate limiter is per process. Even with PostgreSQL checkpoints, a
+  multi-worker deployment requires a shared limiter such as Redis or an API
+  gateway.
 - TLS termination, allowed-host enforcement, and trusted-proxy configuration
   must be supplied by the production platform.
 - Browser session storage remains accessible to same-origin JavaScript. Keep the
@@ -52,9 +54,10 @@
 
 ## Secret handling
 
-Store `GROQ_API_KEY` and `FINANCE_DATABASE_URL` only in `.env` or the deployment
-secret manager. Never commit `.env`, API keys, database credentials, database
-files, logs containing transactions, or saved conversation checkpoints.
+Store `GROQ_API_KEY`, `FINANCE_DATABASE_URL`, and `FINANCE_CHECKPOINT_URL` only
+in `.env` or the deployment secret manager. Never commit `.env`, API keys,
+database credentials, database files, logs containing transactions, or saved
+conversation checkpoints.
 
 If a secret is committed, revoke it at the provider immediately, remove it from
 Git history, and replace it with a newly generated value.

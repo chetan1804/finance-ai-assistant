@@ -5,15 +5,19 @@ import os
 from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
+import psycopg
+from psycopg.rows import dict_row
 
 from src.agents.context import parse_context
 from src.agents.finance_state import FinanceState
 from src.agents.personalization import format_money
 from src.agents.query import execute_finance_query
 from src.database.finance_service import FinanceService
-from src.database.db import get_data_directory
+from src.database.db import get_data_directory, get_database_url
 from src.llm.llm_client import get_llm
 from src.security.validation import validate_chat_request
 
@@ -28,6 +32,22 @@ def get_checkpoint_database():
         if configured
         else get_data_directory() / "checkpoints.db"
     )
+
+
+def get_checkpoint_url():
+    configured = os.getenv("FINANCE_CHECKPOINT_URL")
+    if configured and os.getenv("FINANCE_CHECKPOINT_PATH"):
+        raise RuntimeError(
+            "Configure only one of FINANCE_CHECKPOINT_URL or "
+            "FINANCE_CHECKPOINT_PATH."
+        )
+    if configured and not configured.startswith(("postgresql://", "postgres://")):
+        raise RuntimeError("FINANCE_CHECKPOINT_URL must use PostgreSQL.")
+    if configured:
+        return configured
+    if os.getenv("FINANCE_CHECKPOINT_PATH"):
+        return None
+    return get_database_url()
 
 llm = get_llm()
 finance_service = FinanceService()
@@ -166,17 +186,31 @@ def build_graph():
     return graph
 
 
-checkpoint_database = get_checkpoint_database()
-checkpoint_database.parent.mkdir(parents=True, exist_ok=True)
-checkpoint_connection = sqlite3.connect(
-    checkpoint_database,
-    check_same_thread=False,
-)
-
-
-def create_app():
-    checkpointer = SqliteSaver(conn=checkpoint_connection)
+def create_checkpointer():
+    checkpoint_url = get_checkpoint_url()
+    serializer = JsonPlusSerializer(allowed_msgpack_modules=None)
+    if checkpoint_url:
+        connection = psycopg.connect(
+            checkpoint_url,
+            autocommit=True,
+            prepare_threshold=0,
+            row_factory=dict_row,
+        )
+        checkpointer = PostgresSaver(connection, serde=serializer)
+    else:
+        checkpoint_database = get_checkpoint_database()
+        checkpoint_database.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(
+            checkpoint_database,
+            check_same_thread=False,
+        )
+        checkpointer = SqliteSaver(conn=connection, serde=serializer)
     checkpointer.setup()
+    return checkpointer
+
+
+def create_app(checkpointer=None):
+    checkpointer = checkpointer or create_checkpointer()
     return build_graph().compile(checkpointer=checkpointer)
 
 

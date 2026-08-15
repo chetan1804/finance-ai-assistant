@@ -2,16 +2,16 @@
 
 The application ships as one multi-stage container. Node builds the React
 frontend, then FastAPI serves the compiled frontend and authenticated API from
-the Python runtime image. Finance and authentication data can use SQLite or
-PostgreSQL. LangGraph checkpoints continue to use SQLite in a mounted persistent
-directory.
+the Python runtime image. Finance, authentication data, and LangGraph
+checkpoints can use PostgreSQL. Local and single-instance deployments retain
+SQLite as the default.
 
 ## Production requirements
 
 - Python 3.12 or the provided Docker image
 - A persistent volume mounted at `/app/data`
-- One application process and one running instance while SQLite checkpoints and
-  the in-memory rate limiter are in use
+- One application process and one running instance while SQLite storage or the
+  in-memory rate limiter is in use
 - HTTPS supplied by the hosting platform or reverse proxy
 - `GROQ_API_KEY` configured as a secret
 
@@ -68,7 +68,13 @@ The two files can instead be configured independently:
 
 - `FINANCE_DATABASE_URL`: PostgreSQL URL for finance and authentication data
 - `FINANCE_DATABASE_PATH`: finance SQLite path when no URL is configured
-- `FINANCE_CHECKPOINT_PATH`: LangGraph conversation checkpoint database
+- `FINANCE_CHECKPOINT_URL`: optional separate PostgreSQL checkpoint URL
+- `FINANCE_CHECKPOINT_PATH`: explicit SQLite checkpoint path
+
+When neither checkpoint override is present, checkpoints follow
+`FINANCE_DATABASE_URL` and therefore share the finance PostgreSQL database. Set
+only `FINANCE_CHECKPOINT_PATH` to retain SQLite checkpoints alongside a
+PostgreSQL finance database. Never configure both checkpoint overrides.
 
 For a managed PostgreSQL database, store a URL such as the following in the
 platform secret manager rather than committing it:
@@ -83,7 +89,7 @@ file-level copy.
 
 ## Scaling boundary
 
-PostgreSQL removes the finance-database part of the scaling boundary, but do not
-increase Uvicorn workers or platform replicas yet. Horizontal scaling still
-requires moving LangGraph checkpoints to shared storage and rate limiting to
-Redis or an API gateway.
+PostgreSQL now provides shared finance data and conversation checkpoints, but do
+not increase Uvicorn workers or platform replicas yet. Horizontal scaling still
+requires moving rate limiting to Redis or an API gateway and validating the
+target database connection capacity under production load.

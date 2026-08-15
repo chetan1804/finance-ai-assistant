@@ -48,7 +48,9 @@ Build a finance assistant progressively using:
 The original 20-step roadmap is complete. The next-level React frontend is
 implemented; the legacy static UI remains available as a local fallback during
 acceptance testing. The finance and authentication data layer supports SQLite
-and PostgreSQL with versioned migrations for both backends.
+and PostgreSQL with versioned migrations for both backends. Conversation
+checkpoints also move to PostgreSQL automatically when the finance database URL
+is configured, while local development continues to use SQLite.
 
 ## Step 15 Features
 
