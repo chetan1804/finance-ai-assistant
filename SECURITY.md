@@ -36,10 +36,10 @@
   use. Network clients must use the authenticated API.
 - Email verification, password reset, MFA, compromised-password screening, and
   account recovery are not implemented yet.
-- Versioned migrations are applied automatically, but production backups and
-  restore testing remain operational responsibilities.
-- SQLite files are not encrypted at rest by this project. Production storage
-  must provide disk/database encryption and restricted file permissions.
+- Versioned SQLite and PostgreSQL migrations are applied automatically, but
+  production backups and restore testing remain operational responsibilities.
+- SQLite files are not encrypted at rest by this project. Production SQLite or
+  PostgreSQL storage must provide encryption and restricted access.
 - Provider prompts and transaction data are sent to the configured LLM service.
   Production use requires an approved data-processing and retention policy.
 - The in-memory rate limiter is per process. A multi-worker deployment requires
@@ -52,9 +52,9 @@
 
 ## Secret handling
 
-Store `GROQ_API_KEY` only in `.env` or the deployment secret manager. Never
-commit `.env`, API keys, database files, logs containing transactions, or saved
-conversation checkpoints.
+Store `GROQ_API_KEY` and `FINANCE_DATABASE_URL` only in `.env` or the deployment
+secret manager. Never commit `.env`, API keys, database credentials, database
+files, logs containing transactions, or saved conversation checkpoints.
 
 If a secret is committed, revoke it at the provider immediately, remove it from
 Git history, and replace it with a newly generated value.

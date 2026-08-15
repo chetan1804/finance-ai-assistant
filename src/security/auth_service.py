@@ -1,12 +1,11 @@
 import hashlib
 import secrets
-import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 
-from src.database.db import get_connection
+from src.database.db import INTEGRITY_ERRORS, get_connection
 from src.security.validation import validate_currency, validate_email, validate_text
 
 
@@ -43,7 +42,7 @@ class AuthService:
 
     @staticmethod
     def _timestamp(value):
-        return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        return value.astimezone(timezone.utc).isoformat(sep=" ", timespec="seconds")
 
     @staticmethod
     def _password(password):
@@ -114,7 +113,7 @@ class AuthService:
             session = self._create_session(connection, user_id)
             connection.commit()
             return {**session, "name": name}
-        except sqlite3.IntegrityError as error:
+        except INTEGRITY_ERRORS as error:
             connection.rollback()
             raise RegistrationError("An account with this email already exists.") from error
         except Exception:

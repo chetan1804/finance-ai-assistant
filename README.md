@@ -47,7 +47,8 @@ Build a finance assistant progressively using:
 
 The original 20-step roadmap is complete. The next-level React frontend is
 implemented; the legacy static UI remains available as a local fallback during
-acceptance testing. Versioned SQLite schema migrations are now enabled.
+acceptance testing. The finance and authentication data layer supports SQLite
+and PostgreSQL with versioned migrations for both backends.
 
 ## Step 15 Features
 
@@ -174,10 +175,11 @@ FINANCE_UI_DIST=frontend/dist python -m uvicorn src.api.app:create_app --factory
 
 ## Deployment
 
-The production container uses a non-root user, health checks, a reduced runtime
-dependency set, and persistent SQLite storage. See [DEPLOYMENT.md](DEPLOYMENT.md)
-for first-run bootstrap, Docker Compose, managed-platform configuration, backup,
-and scaling guidance.
+The production container uses a non-root user, health checks, and a reduced
+runtime dependency set. SQLite remains the zero-configuration default;
+PostgreSQL can be selected with `FINANCE_DATABASE_URL`. See
+[DEPLOYMENT.md](DEPLOYMENT.md) for first-run bootstrap, managed-platform
+configuration, backup, and scaling guidance.
 
 Database migrations run automatically at application startup. See
 [MIGRATIONS.md](MIGRATIONS.md) for status checks and safe schema-change rules.

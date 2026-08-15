@@ -95,6 +95,8 @@ pexpect==4.9.0
 pillow==12.3.0
 platformdirs==4.11.2
 pluggy==1.6.0
+psycopg==3.3.4
+psycopg-binary==3.3.4
 prometheus_client==0.26.0
 prompt_toolkit==3.0.53
 psutil==7.2.2

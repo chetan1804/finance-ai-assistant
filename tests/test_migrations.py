@@ -15,6 +15,7 @@ def test_migrations_apply_in_order_and_are_idempotent(tmp_path):
     assert apply_migrations(database_path) == [1, 2]
     assert apply_migrations(database_path) == []
     assert migration_status(database_path) == {
+        "backend": "sqlite",
         "current_version": 2,
         "latest_version": 2,
         "pending": [],

@@ -4,6 +4,10 @@ from pathlib import Path
 from src.database.db import apply_migrations, migration_status
 
 
+def backend_name(value):
+    return "PostgreSQL" if value == "postgresql" else "SQLite"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Apply pending versioned database migrations."
@@ -15,7 +19,8 @@ def main():
     before = migration_status(args.database_path)
     if args.check:
         print(
-            f"Database version {before['current_version']} of "
+            f"{backend_name(before['backend'])} database version "
+            f"{before['current_version']} of "
             f"{before['latest_version']}; pending: {before['pending']}"
         )
         raise SystemExit(1 if before["pending"] else 0)
@@ -23,7 +28,8 @@ def main():
     applied = apply_migrations(args.database_path)
     after = migration_status(args.database_path)
     print(
-        f"Database is at version {after['current_version']} of "
+        f"{backend_name(after['backend'])} database is at version "
+        f"{after['current_version']} of "
         f"{after['latest_version']}. Applied: {applied or 'none'}"
     )
 
