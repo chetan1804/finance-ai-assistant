@@ -47,7 +47,7 @@ Build a finance assistant progressively using:
 
 The original 20-step roadmap is complete. The next-level React frontend is
 implemented; the legacy static UI remains available as a local fallback during
-acceptance testing.
+acceptance testing. Versioned SQLite schema migrations are now enabled.
 
 ## Step 15 Features
 
@@ -178,3 +178,6 @@ The production container uses a non-root user, health checks, a reduced runtime
 dependency set, and persistent SQLite storage. See [DEPLOYMENT.md](DEPLOYMENT.md)
 for first-run bootstrap, Docker Compose, managed-platform configuration, backup,
 and scaling guidance.
+
+Database migrations run automatically at application startup. See
+[MIGRATIONS.md](MIGRATIONS.md) for status checks and safe schema-change rules.

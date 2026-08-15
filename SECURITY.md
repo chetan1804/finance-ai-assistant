@@ -36,8 +36,8 @@
   use. Network clients must use the authenticated API.
 - Email verification, password reset, MFA, compromised-password screening, and
   account recovery are not implemented yet.
-- Existing SQLite databases do not automatically receive new constraints.
-  Production deployment requires versioned database migrations.
+- Versioned migrations are applied automatically, but production backups and
+  restore testing remain operational responsibilities.
 - SQLite files are not encrypted at rest by this project. Production storage
   must provide disk/database encryption and restricted file permissions.
 - Provider prompts and transaction data are sent to the configured LLM service.

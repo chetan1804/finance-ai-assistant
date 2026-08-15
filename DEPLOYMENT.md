@@ -48,9 +48,17 @@ Use the repository `Dockerfile` and configure:
 - Secret: `GROQ_API_KEY`
 - Instance count: `1`
 
-The application automatically ensures the current schema exists at startup.
-Users and their first accounts are created through registration, but versioned
-database migrations are still required before horizontal production scaling.
+The application applies pending versioned SQLite migrations before startup.
+Users and their first accounts are created through registration.
+
+Check a mounted database before deployment with:
+
+```bash
+python -m scripts.migrate_database --check
+```
+
+Back up both database files before releasing a new migration. Applied migration
+files are checksum-protected and must never be edited.
 
 ## Storage configuration
 
