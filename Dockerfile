@@ -12,20 +12,24 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     FINANCE_DATA_DIR=/app/data \
+    FINANCE_BACKUP_DIR=/app/backups \
     FINANCE_UI_DIST=/app/frontend/dist \
     PORT=8000
 
 WORKDIR /app
 
 RUN groupadd --system finance \
-    && useradd --system --gid finance --create-home finance
+    && useradd --system --gid finance --create-home finance \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-prod.txt ./
 RUN pip install --no-cache-dir --requirement requirements-prod.txt
 
 COPY --chown=finance:finance . .
 COPY --from=frontend-build --chown=finance:finance /frontend/dist /app/frontend/dist
-RUN mkdir -p /app/data && chown finance:finance /app/data
+RUN mkdir -p /app/data /app/backups && chown finance:finance /app/data /app/backups
 
 USER finance
 

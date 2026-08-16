@@ -6,6 +6,7 @@ services:
       - .env
     environment:
       FINANCE_DATA_DIR: /app/data
+      FINANCE_BACKUP_DIR: /app/backups
       FINANCE_REDIS_URL: redis://redis:6379/0
       PORT: 8000
     depends_on:
@@ -15,6 +16,7 @@ services:
       - "8000:8000"
     volumes:
       - finance-data:/app/data
+      - finance-backups:/app/backups
 
   redis:
     image: redis:7-alpine
@@ -29,4 +31,5 @@ services:
 
 volumes:
   finance-data:
+  finance-backups:
   redis-data:

@@ -10,6 +10,7 @@ SQLite as the default.
 
 - Python 3.12 or the provided Docker image
 - A persistent volume mounted at `/app/data`
+- A separate persistent or object-storage-backed location for `/app/backups`
 - One application process and one running instance while SQLite storage or the
   in-memory rate limiter is in use
 - HTTPS supplied by the hosting platform or reverse proxy
@@ -87,7 +88,7 @@ Check a mounted database before deployment with:
 python -m scripts.migrate_database --check
 ```
 
-Back up both database files before releasing a new migration. Applied migration
+Create and verify a backup before releasing a new migration. Applied migration
 files are checksum-protected and must never be edited.
 
 ## Storage configuration
@@ -95,6 +96,8 @@ files are checksum-protected and must never be edited.
 `FINANCE_DATA_DIR` changes the directory containing both default SQLite files.
 The two files can instead be configured independently:
 
+- `FINANCE_BACKUP_DIR`: backup output directory, defaulting to
+  `<FINANCE_DATA_DIR>/backups`
 - `FINANCE_DATABASE_URL`: PostgreSQL URL for finance and authentication data
 - `FINANCE_DATABASE_PATH`: finance SQLite path when no URL is configured
 - `FINANCE_CHECKPOINT_URL`: optional separate PostgreSQL checkpoint URL
@@ -147,9 +150,64 @@ platform secret manager rather than committing it:
 postgresql://finance:password@database-host:5432/finance
 ```
 
-Back up the selected finance database and the checkpoint SQLite database. Test
-restoration regularly and stop application writes while taking a raw SQLite
-file-level copy.
+## Backup and disaster recovery
+
+The backup command discovers the configured finance and LangGraph checkpoint
+storage, creates an online SQLite copy or PostgreSQL custom-format archive, and
+then verifies it before publishing the backup directory:
+
+```bash
+python -m scripts.backup_data
+python -m scripts.verify_backup "${FINANCE_BACKUP_DIR}/<backup-directory>"
+```
+
+Docker Compose stores backups on the separate `finance-backups` volume:
+
+```bash
+docker compose exec finance-assistant python -m scripts.backup_data
+docker compose exec finance-assistant \
+  python -m scripts.verify_backup /app/backups/<backup-directory>
+```
+
+Copy completed directories to encrypted off-site object storage. The manifest
+contains artifact roles, sizes, and SHA-256 checksums but never database URLs or
+credentials. Do not treat the checksum as encryption or authentication; protect
+backup access because the archive contains financial and identity data.
+
+Schedule `python -m scripts.backup_data` with the platform scheduler or a daily
+cron job, alert on a nonzero exit, and apply independent storage retention. The
+backup directory must be persistent and separate from the live database volume.
+PostgreSQL deployments require `pg_dump` and `pg_restore`; use client tools from
+the same major version as the server or a newer supported version. The provided
+container installs these tools.
+
+Run a restore drill into new destinations, never directly over the live data:
+
+```bash
+python -m scripts.restore_data data/backups/<backup-directory> \
+  --finance-path /tmp/finance-restored.db \
+  --checkpoint-path /tmp/checkpoints-restored.db
+```
+
+For PostgreSQL, create an empty drill database and provide its URL through the
+deployment secret mechanism:
+
+```bash
+python -m scripts.restore_data /secure/backups/<backup-directory> \
+  --finance-url "$RESTORE_DATABASE_URL" \
+  --checkpoint-url "$RESTORE_DATABASE_URL"
+```
+
+The command verifies every artifact before restoring and rejects existing
+SQLite files or non-empty PostgreSQL databases. `--force` deliberately replaces
+an existing destination and must be used only during an approved recovery while
+application writes are stopped. After a drill, run migration status checks and
+application smoke tests against the restored destination. Record the recovery
+time and repeat the drill at least quarterly and before changing backup tooling.
+
+Recommended production objectives are a 24-hour recovery point (daily backup)
+and a four-hour recovery time. Tighten those values if the acceptable data-loss
+window requires more frequent snapshots.
 
 ## Scaling boundary
 

@@ -50,6 +50,8 @@ data/*.sqlite
 data/*.sqlite3
 data/*.db-shm
 data/*.db-wal
+backups/
+data/backups/
 
 # ML artifacts
 data/ml/*.joblib

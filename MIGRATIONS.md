@@ -38,6 +38,16 @@ Use `--database-path <path>` to explicitly select another SQLite file, even if
 new migration. Never edit an applied migration; create matching next-version
 files for each supported backend instead.
 
+Create and verify that pre-migration backup with:
+
+```bash
+python -m scripts.backup_data
+python -m scripts.verify_backup data/backups/<backup-directory>
+```
+
+See `DEPLOYMENT.md` for PostgreSQL backup requirements and the isolated restore
+drill procedure.
+
 PostgreSQL migrations use a transaction-level advisory lock so concurrent app
 starts cannot apply the same migration at once. CI exercises the finance and
 authentication services against a real PostgreSQL service.

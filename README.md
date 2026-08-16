@@ -200,3 +200,19 @@ only for explicitly configured frontend origins.
 
 Database migrations run automatically at application startup. See
 [MIGRATIONS.md](MIGRATIONS.md) for status checks and safe schema-change rules.
+
+## Backup and recovery
+
+Create an integrity-checked backup of the configured finance and conversation
+storage:
+
+```bash
+python -m scripts.backup_data
+python -m scripts.verify_backup data/backups/<backup-directory>
+```
+
+Each backup contains a credential-free manifest with SHA-256 checksums. SQLite
+uses its online backup API; PostgreSQL uses custom-format `pg_dump` archives.
+Restore rejects existing destinations unless `--force` is explicitly supplied.
+See [DEPLOYMENT.md](DEPLOYMENT.md#backup-and-disaster-recovery) for restore drills,
+scheduling, and PostgreSQL client-version requirements.
