@@ -12,6 +12,11 @@ class HealthResponse(StrictModel):
     status: Literal["ok"]
 
 
+class ReadinessResponse(StrictModel):
+    status: Literal["ready", "unavailable"]
+    checks: dict[str, Literal["ok", "unavailable"]]
+
+
 class RegisterRequest(StrictModel):
     name: str = Field(min_length=1, max_length=100)
     email: str = Field(min_length=3, max_length=254)

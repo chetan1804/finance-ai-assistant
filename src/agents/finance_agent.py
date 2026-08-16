@@ -1,23 +1,15 @@
-import sqlite3
 import json
 from datetime import date
-import os
-from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.checkpoint.postgres import PostgresSaver
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
-import psycopg
-from psycopg.rows import dict_row
 
+from src.agents.checkpoint import create_checkpointer, get_checkpoint_url
 from src.agents.context import parse_context
 from src.agents.finance_state import FinanceState
 from src.agents.personalization import format_money
 from src.agents.query import execute_finance_query
 from src.database.finance_service import FinanceService
-from src.database.db import get_data_directory, get_database_url
 from src.llm.llm_client import get_llm
 from src.security.validation import validate_chat_request
 
@@ -25,32 +17,16 @@ from src.security.validation import validate_chat_request
 MAX_CONTEXT_MESSAGES = 20
 
 
-def get_checkpoint_database():
-    configured = os.getenv("FINANCE_CHECKPOINT_PATH")
-    return (
-        Path(configured).expanduser()
-        if configured
-        else get_data_directory() / "checkpoints.db"
-    )
-
-
-def get_checkpoint_url():
-    configured = os.getenv("FINANCE_CHECKPOINT_URL")
-    if configured and os.getenv("FINANCE_CHECKPOINT_PATH"):
-        raise RuntimeError(
-            "Configure only one of FINANCE_CHECKPOINT_URL or "
-            "FINANCE_CHECKPOINT_PATH."
-        )
-    if configured and not configured.startswith(("postgresql://", "postgres://")):
-        raise RuntimeError("FINANCE_CHECKPOINT_URL must use PostgreSQL.")
-    if configured:
-        return configured
-    if os.getenv("FINANCE_CHECKPOINT_PATH"):
-        return None
-    return get_database_url()
-
-llm = get_llm()
+llm = None
 finance_service = FinanceService()
+
+
+def get_agent_llm():
+    """Create the provider client only when a chat turn needs it."""
+    global llm
+    if llm is None:
+        llm = get_llm()
+    return llm
 
 
 def extract_context(state: FinanceState):
@@ -90,7 +66,7 @@ Rules:
 - Do not invent a date when the user did not specify a period.
 """
 
-    response = llm.invoke(
+    response = get_agent_llm().invoke(
         [
             SystemMessage(
                 content=(
@@ -159,7 +135,7 @@ Use the display amount exactly as provided; do not reformat it.
 If the result is 0, state that clearly.
 """
 
-    response = llm.invoke(
+    response = get_agent_llm().invoke(
         [
             SystemMessage(
                 content=(
@@ -184,29 +160,6 @@ def build_graph():
     graph.add_edge("finance_query", "generate_response")
     graph.add_edge("generate_response", END)
     return graph
-
-
-def create_checkpointer():
-    checkpoint_url = get_checkpoint_url()
-    serializer = JsonPlusSerializer(allowed_msgpack_modules=None)
-    if checkpoint_url:
-        connection = psycopg.connect(
-            checkpoint_url,
-            autocommit=True,
-            prepare_threshold=0,
-            row_factory=dict_row,
-        )
-        checkpointer = PostgresSaver(connection, serde=serializer)
-    else:
-        checkpoint_database = get_checkpoint_database()
-        checkpoint_database.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(
-            checkpoint_database,
-            check_same_thread=False,
-        )
-        checkpointer = SqliteSaver(conn=connection, serde=serializer)
-    checkpointer.setup()
-    return checkpointer
 
 
 def create_app(checkpointer=None):

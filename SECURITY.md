@@ -17,7 +17,8 @@
 - API keys and local databases are excluded from Git.
 - New databases include defensive `CHECK` constraints.
 - API user identity is derived from an opaque bearer token, never a request body.
-- Authenticated endpoints have per-user rate limiting.
+- Authenticated endpoints have per-user rate limiting, shared through Redis when
+  `FINANCE_REDIS_URL` is configured.
 - API responses include no-store, MIME-sniffing, framing, and referrer controls.
 - Oversized request bodies are rejected before endpoint processing.
 - The dashboard stores bearer tokens in browser session storage, not persistent
@@ -43,9 +44,8 @@
   PostgreSQL storage must provide encryption and restricted access.
 - Provider prompts and transaction data are sent to the configured LLM service.
   Production use requires an approved data-processing and retention policy.
-- The in-memory rate limiter is per process. Even with PostgreSQL checkpoints, a
-  multi-worker deployment requires a shared limiter such as Redis or an API
-  gateway.
+- The in-memory rate limiter remains a local-development fallback. Production
+  multi-worker or multi-replica deployments must configure Redis.
 - TLS termination, allowed-host enforcement, and trusted-proxy configuration
   must be supplied by the production platform.
 - Browser session storage remains accessible to same-origin JavaScript. Keep the
@@ -54,10 +54,10 @@
 
 ## Secret handling
 
-Store `GROQ_API_KEY`, `FINANCE_DATABASE_URL`, and `FINANCE_CHECKPOINT_URL` only
-in `.env` or the deployment secret manager. Never commit `.env`, API keys,
-database credentials, database files, logs containing transactions, or saved
-conversation checkpoints.
+Store `GROQ_API_KEY`, `FINANCE_DATABASE_URL`, `FINANCE_CHECKPOINT_URL`, and
+`FINANCE_REDIS_URL` only in `.env` or the deployment secret manager. Never
+commit `.env`, API keys, database credentials, database files, logs containing
+transactions, or saved conversation checkpoints.
 
 If a secret is committed, revoke it at the provider immediately, remove it from
 Git history, and replace it with a newly generated value.

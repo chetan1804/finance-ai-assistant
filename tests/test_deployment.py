@@ -1,7 +1,17 @@
+import os
+
+import pytest
+from fastapi.testclient import TestClient
+
+from src.agents.checkpoint import close_checkpoint_pools
 from src.api.app import create_app
 from src.api.auth import TokenAuthenticator
-from src.api.rate_limit import InMemoryRateLimiter
-from src.database.db import get_database_path, initialize_database
+from src.api.rate_limit import InMemoryRateLimiter, close_redis_clients
+from src.database.db import (
+    close_postgres_pools,
+    get_database_path,
+    initialize_database,
+)
 from src.database.finance_service import FinanceService
 from scripts.bootstrap_user import bootstrap_user
 
@@ -89,4 +99,23 @@ def test_api_serves_configured_react_build(monkeypatch, tmp_path):
     assert "React deployment" in page.text
     assert script.status_code == 200
     assert "default-src 'self'" in page.headers["content-security-policy"]
-from fastapi.testclient import TestClient
+
+
+@pytest.mark.skipif(
+    not os.getenv("TEST_POSTGRES_URL") or not os.getenv("TEST_REDIS_URL"),
+    reason="PostgreSQL and Redis integration URLs are required.",
+)
+def test_production_readiness_with_postgres_and_redis(monkeypatch):
+    monkeypatch.setenv("FINANCE_DATABASE_URL", os.environ["TEST_POSTGRES_URL"])
+    monkeypatch.setenv("FINANCE_REDIS_URL", os.environ["TEST_REDIS_URL"])
+    monkeypatch.delenv("FINANCE_DATABASE_PATH", raising=False)
+    monkeypatch.delenv("FINANCE_CHECKPOINT_URL", raising=False)
+    monkeypatch.delenv("FINANCE_CHECKPOINT_PATH", raising=False)
+
+    response = TestClient(create_app()).get("/ready")
+
+    assert response.status_code == 200
+    assert all(value == "ok" for value in response.json()["checks"].values())
+    close_checkpoint_pools()
+    close_postgres_pools()
+    close_redis_clients()

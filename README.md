@@ -50,7 +50,9 @@ implemented; the legacy static UI remains available as a local fallback during
 acceptance testing. The finance and authentication data layer supports SQLite
 and PostgreSQL with versioned migrations for both backends. Conversation
 checkpoints also move to PostgreSQL automatically when the finance database URL
-is configured, while local development continues to use SQLite.
+is configured, while local development continues to use SQLite. PostgreSQL
+connections are pooled, Redis provides cross-replica rate limiting, and the
+readiness endpoint verifies production dependencies.
 
 ## Step 15 Features
 
@@ -122,6 +124,7 @@ email, password, currency, and first account, or sign into an existing profile.
 Available endpoints:
 
 - `GET /health`
+- `GET /ready`
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/refresh`

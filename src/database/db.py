@@ -1,12 +1,16 @@
+import atexit
 import hashlib
 import os
 import re
 import sqlite3
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 import psycopg
 from psycopg import IntegrityError as PostgresIntegrityError
+from psycopg.pq import TransactionStatus
+from psycopg_pool import ConnectionPool
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +18,8 @@ MIGRATIONS_PATH = Path(__file__).with_name("migrations")
 POSTGRES_MIGRATIONS_PATH = Path(__file__).with_name("postgres_migrations")
 MIGRATION_PATTERN = re.compile(r"^(\d{3})_([a-z0-9_]+)\.sql$")
 INTEGRITY_ERRORS = (sqlite3.IntegrityError, PostgresIntegrityError)
+_POSTGRES_POOLS = {}
+_POSTGRES_POOLS_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -45,6 +51,57 @@ def get_database_url():
     if value and not value.startswith(("postgresql://", "postgres://")):
         raise RuntimeError("FINANCE_DATABASE_URL must use PostgreSQL.")
     return value
+
+
+def _pool_size(name, default, *, minimum=0):
+    value = os.getenv(name)
+    try:
+        parsed = int(value) if value is not None else default
+    except ValueError as error:
+        raise RuntimeError(f"{name} must be an integer.") from error
+    if parsed < minimum:
+        raise RuntimeError(f"{name} must be at least {minimum}.")
+    return parsed
+
+
+def get_postgres_pool(database_url=None):
+    """Return the process-wide checked pool for a PostgreSQL URL."""
+    database_url = database_url or get_database_url()
+    if not database_url:
+        return None
+    min_size = _pool_size("FINANCE_DB_POOL_MIN_SIZE", 1)
+    max_size = _pool_size("FINANCE_DB_POOL_MAX_SIZE", 10, minimum=1)
+    timeout = _pool_size("FINANCE_DB_POOL_TIMEOUT_SECONDS", 5, minimum=1)
+    if min_size > max_size:
+        raise RuntimeError(
+            "FINANCE_DB_POOL_MIN_SIZE must not exceed FINANCE_DB_POOL_MAX_SIZE."
+        )
+    key = (database_url, min_size, max_size, timeout)
+    with _POSTGRES_POOLS_LOCK:
+        pool = _POSTGRES_POOLS.get(key)
+        if pool is None:
+            pool = ConnectionPool(
+                database_url,
+                min_size=min_size,
+                max_size=max_size,
+                timeout=timeout,
+                check=ConnectionPool.check_connection,
+                open=True,
+                name="finance-database",
+            )
+            _POSTGRES_POOLS[key] = pool
+    return pool
+
+
+def close_postgres_pools():
+    with _POSTGRES_POOLS_LOCK:
+        pools = list(_POSTGRES_POOLS.values())
+        _POSTGRES_POOLS.clear()
+    for pool in pools:
+        pool.close()
+
+
+atexit.register(close_postgres_pools)
 
 
 def _postgres_query(query):
@@ -94,8 +151,10 @@ class PostgresCursorAdapter:
 
 
 class PostgresConnectionAdapter:
-    def __init__(self, connection):
+    def __init__(self, connection, pool=None):
         self.connection = connection
+        self.pool = pool
+        self.closed = False
 
     def execute(self, query, params=()):
         cursor = self.connection.execute(_postgres_query(query), params)
@@ -113,14 +172,23 @@ class PostgresConnectionAdapter:
         self.connection.rollback()
 
     def close(self):
-        self.connection.close()
+        if self.closed:
+            return
+        self.closed = True
+        if self.pool is None:
+            self.connection.close()
+            return
+        if self.connection.info.transaction_status != TransactionStatus.IDLE:
+            self.connection.rollback()
+        self.pool.putconn(self.connection)
 
 
 def get_connection(database_path=None):
     """Return a configured SQLite or PostgreSQL-compatible connection."""
     database_url = None if database_path is not None else get_database_url()
     if database_url:
-        return PostgresConnectionAdapter(psycopg.connect(database_url))
+        pool = get_postgres_pool(database_url)
+        return PostgresConnectionAdapter(pool.getconn(), pool=pool)
     path = Path(database_path) if database_path else get_database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -295,3 +363,11 @@ def migration_status(database_path=None, migrations_path=None):
 def initialize_database(database_path=None):
     """Bring the selected database to the latest schema version."""
     return apply_migrations(database_path)
+
+
+def database_is_ready(database_path=None):
+    connection = get_connection(database_path)
+    try:
+        return connection.execute("SELECT 1").fetchone()[0] == 1
+    finally:
+        connection.close()

@@ -104,6 +104,46 @@ def test_health_is_public_and_has_security_headers(api_context):
     assert response.headers["x-frame-options"] == "DENY"
 
 
+def test_readiness_reports_dependency_status(api_context):
+    response = api_context["client"].get("/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "checks": {
+            "database": "ok",
+            "checkpoints": "ok",
+            "rate_limiter": "ok",
+        },
+    }
+
+
+def test_readiness_returns_503_when_a_dependency_is_unavailable(tmp_path):
+    class UnavailableHealthChecker:
+        @staticmethod
+        def check():
+            return {
+                "status": "unavailable",
+                "checks": {
+                    "database": "ok",
+                    "checkpoints": "ok",
+                    "rate_limiter": "unavailable",
+                },
+            }
+
+    application = create_app(
+        service=FinanceService(tmp_path / "readiness.db"),
+        chat_handler=lambda **_kwargs: None,
+        authenticator=TokenAuthenticator({USER_TOKEN: 1}),
+        rate_limiter=InMemoryRateLimiter(requests=100),
+        health_checker=UnavailableHealthChecker(),
+    )
+    response = TestClient(application).get("/ready")
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "unavailable"
+
+
 def test_dashboard_and_static_assets_are_served_with_strict_csp(api_context):
     client = api_context["client"]
     page = client.get("/")

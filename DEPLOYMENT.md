@@ -14,6 +14,7 @@ SQLite as the default.
   in-memory rate limiter is in use
 - HTTPS supplied by the hosting platform or reverse proxy
 - `GROQ_API_KEY` configured as a secret
+- `FINANCE_REDIS_URL` configured for any multi-process or multi-replica release
 
 Never bake `.env`, database files, API tokens, or provider keys into an image.
 
@@ -34,6 +35,7 @@ Verify the deployment:
 
 ```bash
 curl --fail http://127.0.0.1:8000/health
+curl --fail http://127.0.0.1:8000/ready
 docker compose ps
 ```
 
@@ -43,7 +45,8 @@ Open `http://127.0.0.1:8000/` and enter the generated bearer token.
 
 Use the repository `Dockerfile` and configure:
 
-- Health-check path: `/health`
+- Liveness path: `/health`
+- Readiness and platform health-check path: `/ready`
 - Container port: the platform-provided `PORT`, falling back to `8000`
 - Persistent volume mount: `/app/data`
 - Secret: `GROQ_API_KEY`
@@ -70,11 +73,22 @@ The two files can instead be configured independently:
 - `FINANCE_DATABASE_PATH`: finance SQLite path when no URL is configured
 - `FINANCE_CHECKPOINT_URL`: optional separate PostgreSQL checkpoint URL
 - `FINANCE_CHECKPOINT_PATH`: explicit SQLite checkpoint path
+- `FINANCE_REDIS_URL`: shared Redis connection for API and authentication limits
 
 When neither checkpoint override is present, checkpoints follow
 `FINANCE_DATABASE_URL` and therefore share the finance PostgreSQL database. Set
 only `FINANCE_CHECKPOINT_PATH` to retain SQLite checkpoints alongside a
 PostgreSQL finance database. Never configure both checkpoint overrides.
+
+PostgreSQL pooling is configured per application process:
+
+- `FINANCE_DB_POOL_MIN_SIZE` and `FINANCE_DB_POOL_MAX_SIZE`: finance queries
+- `FINANCE_DB_POOL_TIMEOUT_SECONDS`: maximum wait for a finance connection
+- `FINANCE_CHECKPOINT_POOL_MIN_SIZE` and `FINANCE_CHECKPOINT_POOL_MAX_SIZE`:
+  LangGraph checkpoint operations
+
+Multiply both maximums by the planned worker and replica count when checking the
+database provider's connection limit.
 
 For a managed PostgreSQL database, store a URL such as the following in the
 platform secret manager rather than committing it:
@@ -89,7 +103,8 @@ file-level copy.
 
 ## Scaling boundary
 
-PostgreSQL now provides shared finance data and conversation checkpoints, but do
-not increase Uvicorn workers or platform replicas yet. Horizontal scaling still
-requires moving rate limiting to Redis or an API gateway and validating the
-target database connection capacity under production load.
+With PostgreSQL-backed finance data and checkpoints plus `FINANCE_REDIS_URL`,
+the application no longer depends on per-process state. PostgreSQL pools default
+to 1–10 finance connections and 1–5 checkpoint connections per application
+process. Validate total database connection capacity and load-test the target
+environment before increasing worker or replica counts.

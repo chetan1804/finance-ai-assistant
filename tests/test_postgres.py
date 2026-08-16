@@ -6,7 +6,9 @@ import pytest
 from src.database.db import (
     POSTGRES_MIGRATIONS_PATH,
     _postgres_query,
+    close_postgres_pools,
     discover_migrations,
+    get_postgres_pool,
     initialize_database,
     migration_status,
 )
@@ -66,3 +68,21 @@ def test_finance_and_auth_services_run_on_postgres(monkeypatch):
     refreshed = auth_service.refresh(registered["refresh_token"])
     assert auth_service.authenticate_access_token(refreshed["access_token"]) == registered["user_id"]
     assert migration_status()["backend"] == "postgresql"
+
+
+@pytest.mark.skipif(
+    not os.getenv("TEST_POSTGRES_URL"),
+    reason="TEST_POSTGRES_URL is required for PostgreSQL integration testing.",
+)
+def test_postgres_connections_are_reused_from_a_checked_pool(monkeypatch):
+    database_url = os.environ["TEST_POSTGRES_URL"]
+    monkeypatch.setenv("FINANCE_DATABASE_URL", database_url)
+
+    first = get_postgres_pool()
+    second = get_postgres_pool()
+    with first.connection() as connection:
+        assert connection.execute("SELECT 1").fetchone()[0] == 1
+
+    assert first is second
+    assert first.get_stats()["connections_num"] >= 1
+    close_postgres_pools()

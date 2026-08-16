@@ -9,7 +9,8 @@ from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 from src.api.auth import TokenAuthenticator
-from src.api.rate_limit import InMemoryRateLimiter
+from src.api.health import ProductionHealthChecker
+from src.api.rate_limit import create_rate_limiter
 from src.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -17,6 +18,7 @@ from src.api.schemas import (
     AuthResponse,
     CategoryResponse,
     HealthResponse,
+    ReadinessResponse,
     LoginRequest,
     LogoutRequest,
     PreferencesResponse,
@@ -61,6 +63,7 @@ def create_app(
     auth_service=None,
     rate_limiter=None,
     auth_rate_limiter=None,
+    health_checker=None,
 ):
     """Create the API with injectable dependencies for deterministic tests."""
     load_dotenv()
@@ -72,10 +75,15 @@ def create_app(
         raise RuntimeError(f"Frontend build not found at {ui_directory}.")
     chat_handler = chat_handler or _default_chat_handler
     authenticator = authenticator or TokenAuthenticator.from_environment(auth_service)
-    rate_limiter = rate_limiter or InMemoryRateLimiter()
-    auth_rate_limiter = auth_rate_limiter or InMemoryRateLimiter(
+    rate_limiter = rate_limiter or create_rate_limiter(namespace="api")
+    auth_rate_limiter = auth_rate_limiter or create_rate_limiter(
         requests=10,
         window_seconds=60,
+        namespace="auth",
+    )
+    health_checker = health_checker or ProductionHealthChecker(
+        database_path=service.database_path,
+        rate_limiters=(rate_limiter, auth_rate_limiter),
     )
 
     application = FastAPI(
@@ -168,6 +176,13 @@ def create_app(
     @application.get("/health", response_model=HealthResponse)
     def health():
         return {"status": "ok"}
+
+    @application.get("/ready", response_model=ReadinessResponse)
+    def readiness(response: Response):
+        result = health_checker.check()
+        if result["status"] != "ready":
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return result
 
     @application.post(
         "/api/v1/auth/register",

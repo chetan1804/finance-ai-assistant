@@ -7,7 +7,11 @@ import pytest
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, StateGraph
 
-from src.agents.finance_agent import create_checkpointer, get_checkpoint_url
+from src.agents.checkpoint import (
+    close_checkpoint_pools,
+    create_checkpointer,
+    get_checkpoint_url,
+)
 
 
 class SharedState(TypedDict):
@@ -51,7 +55,7 @@ def test_checkpoint_url_and_path_cannot_both_be_configured(monkeypatch):
     not os.getenv("TEST_POSTGRES_URL"),
     reason="TEST_POSTGRES_URL is required for PostgreSQL integration testing.",
 )
-def test_postgres_checkpoints_persist_between_connections(monkeypatch):
+def test_postgres_checkpoints_persist_between_savers(monkeypatch):
     monkeypatch.setenv("FINANCE_CHECKPOINT_URL", os.environ["TEST_POSTGRES_URL"])
     monkeypatch.delenv("FINANCE_CHECKPOINT_PATH", raising=False)
     config = {"configurable": {"thread_id": f"checkpoint-{uuid4().hex}"}}
@@ -59,10 +63,9 @@ def test_postgres_checkpoints_persist_between_connections(monkeypatch):
     first = create_checkpointer()
     assert isinstance(first, PostgresSaver)
     shared_graph(first).invoke({"values": ["first"]}, config=config)
-    first.conn.close()
 
     second = create_checkpointer()
     result = shared_graph(second).invoke({"values": ["second"]}, config=config)
-    second.conn.close()
+    close_checkpoint_pools()
 
     assert result["values"] == ["first", "second"]

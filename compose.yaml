@@ -6,11 +6,27 @@ services:
       - .env
     environment:
       FINANCE_DATA_DIR: /app/data
+      FINANCE_REDIS_URL: redis://redis:6379/0
       PORT: 8000
+    depends_on:
+      redis:
+        condition: service_healthy
     ports:
       - "8000:8000"
     volumes:
       - finance-data:/app/data
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis-data:/data
+
 volumes:
   finance-data:
+  redis-data:
