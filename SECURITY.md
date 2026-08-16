@@ -33,6 +33,8 @@
 - Registration and login are rate-limited by client address.
 - Structured request logs exclude bodies, query values, bearer tokens, user IDs,
   and financial values; safe request IDs correlate failures across services.
+- Production rejects unapproved Host headers, supports exact-origin CORS,
+  redirects HTTP to HTTPS, and emits HSTS on secure responses.
 
 ## Important limitations
 
@@ -48,8 +50,8 @@
   Production use requires an approved data-processing and retention policy.
 - The in-memory rate limiter remains a local-development fallback. Production
   multi-worker or multi-replica deployments must configure Redis.
-- TLS termination, allowed-host enforcement, and trusted-proxy configuration
-  must be supplied by the production platform.
+- TLS termination remains the production platform's responsibility. Forwarded
+  headers are accepted only from explicitly configured proxy addresses.
 - `/metrics` is unauthenticated for Prometheus compatibility and must be
   restricted to the monitoring network by the production platform.
 - Browser session storage remains accessible to same-origin JavaScript. Keep the

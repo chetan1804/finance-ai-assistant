@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 from src.api.auth import TokenAuthenticator
+from src.api.deployment_security import DeploymentSecuritySettings
 from src.api.health import ProductionHealthChecker
 from src.api.observability import Observability, request_id_from_header
 from src.api.rate_limit import create_rate_limiter
@@ -67,6 +68,7 @@ def create_app(
     auth_rate_limiter=None,
     health_checker=None,
     observability=None,
+    deployment_settings=None,
 ):
     """Create the API with injectable dependencies for deterministic tests."""
     load_dotenv()
@@ -89,13 +91,19 @@ def create_app(
         rate_limiters=(rate_limiter, auth_rate_limiter),
     )
     observability = observability or Observability()
+    deployment_settings = (
+        deployment_settings or DeploymentSecuritySettings.from_environment()
+    )
 
     application = FastAPI(
         title="Finance Assistant API",
         version="1.0.0",
         description="Authenticated access to personalized financial insights.",
+        middleware=deployment_settings.middleware(),
+        root_path=deployment_settings.root_path,
     )
     application.state.observability = observability
+    application.state.deployment_settings = deployment_settings
     application.mount(
         "/static",
         StaticFiles(directory=LEGACY_UI_DIRECTORY),
@@ -107,6 +115,28 @@ def create_app(
             StaticFiles(directory=ui_directory / "assets"),
             name="react-assets",
         )
+
+    def apply_security_response_headers(request, response):
+        response.headers["X-Request-ID"] = request.state.request_id
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        if deployment_settings.hsts_seconds and request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = (
+                f"max-age={deployment_settings.hsts_seconds}; includeSubDomains"
+            )
+        if (
+            request.url.path == "/"
+            or request.url.path.startswith("/static/")
+            or request.url.path.startswith("/assets/")
+        ):
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; script-src 'self'; style-src 'self'; "
+                "img-src 'self' data:; connect-src 'self'; "
+                "font-src 'self'; object-src 'none'; base-uri 'none'; "
+                "frame-ancestors 'none'"
+            )
 
     @application.middleware("http")
     async def security_headers(request: Request, call_next):
@@ -125,7 +155,7 @@ def create_app(
                     status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                     content={"detail": "Request body is too large."},
                 )
-                response.headers["X-Request-ID"] = request.state.request_id
+                apply_security_response_headers(request, response)
                 observability.record_request(
                     request,
                     response.status_code,
@@ -150,22 +180,7 @@ def create_app(
                     "request_id": request.state.request_id,
                 },
             )
-        response.headers["X-Request-ID"] = request.state.request_id
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        if (
-            request.url.path == "/"
-            or request.url.path.startswith("/static/")
-            or request.url.path.startswith("/assets/")
-        ):
-            response.headers["Content-Security-Policy"] = (
-                "default-src 'self'; script-src 'self'; style-src 'self'; "
-                "img-src 'self' data:; connect-src 'self'; "
-                "font-src 'self'; object-src 'none'; base-uri 'none'; "
-                "frame-ancestors 'none'"
-            )
+        apply_security_response_headers(request, response)
         observability.record_request(request, response.status_code, started_at)
         return response
 

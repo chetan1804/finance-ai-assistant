@@ -194,5 +194,9 @@ PostgreSQL can be selected with `FINANCE_DATABASE_URL`. See
 [DEPLOYMENT.md](DEPLOYMENT.md) for first-run bootstrap, managed-platform
 configuration, backup, and scaling guidance.
 
+Production mode validates allowed hosts, redirects trusted HTTP requests to
+HTTPS, emits HSTS on secure responses, and permits cross-origin browser access
+only for explicitly configured frontend origins.
+
 Database migrations run automatically at application startup. See
 [MIGRATIONS.md](MIGRATIONS.md) for status checks and safe schema-change rules.

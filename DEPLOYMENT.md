@@ -53,6 +53,31 @@ Use the repository `Dockerfile` and configure:
 - Secret: `GROQ_API_KEY`
 - Instance count: `1`
 
+Set the following production security values:
+
+```text
+FINANCE_ENVIRONMENT=production
+FINANCE_ALLOWED_HOSTS=finance.example.com
+FINANCE_HTTPS_REDIRECT=true
+FINANCE_FORWARDED_ALLOW_IPS=127.0.0.1
+```
+
+Replace the forwarded-IP value with the exact proxy IP addresses or networks
+that connect to the container. Never use `*` unless the container is network
+isolated so that only a trusted proxy can reach it. Uvicorn ignores forwarded
+scheme and client headers from other addresses.
+
+If the React application is served from a different origin, configure exact
+origins without paths:
+
+```text
+FINANCE_CORS_ORIGINS=https://app.example.com
+```
+
+Same-origin deployments should leave `FINANCE_CORS_ORIGINS` unset. Production
+rejects wildcard allowed hosts. `FINANCE_ROOT_PATH` may be set when a proxy
+publishes the application below a stripped URL prefix.
+
 The application applies pending versioned migrations for the selected database
 before startup. Users and their first accounts are created through registration.
 
@@ -105,6 +130,15 @@ otherwise. Configure Prometheus to scrape `/metrics`, and restrict that path to
 the monitoring network at the gateway or platform level. Metrics use an
 in-process registry, so run one Uvicorn worker per container and scale with
 separately scraped replicas.
+
+## HTTPS and proxy boundary
+
+TLS terminates at the managed platform or reverse proxy. With
+`FINANCE_HTTPS_REDIRECT=true`, the application redirects requests that Uvicorn
+identifies as HTTP and sends HSTS on HTTPS responses. Correct behavior therefore
+depends on an exact `FINANCE_FORWARDED_ALLOW_IPS` trust boundary. Keep the
+container port private when possible and test redirects, callback URLs, and
+health probes through the real proxy before release.
 
 For a managed PostgreSQL database, store a URL such as the following in the
 platform secret manager rather than committing it:
