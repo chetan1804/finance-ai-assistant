@@ -9,12 +9,25 @@ RUN npm run build
 
 FROM python:3.12-slim
 
+ARG FINANCE_RELEASE_VERSION=development
+ARG FINANCE_COMMIT_SHA=unknown
+ARG FINANCE_BUILD_DATE=unknown
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    FINANCE_RELEASE_VERSION=${FINANCE_RELEASE_VERSION} \
+    FINANCE_COMMIT_SHA=${FINANCE_COMMIT_SHA} \
+    FINANCE_BUILD_DATE=${FINANCE_BUILD_DATE} \
     FINANCE_DATA_DIR=/app/data \
     FINANCE_BACKUP_DIR=/app/backups \
     FINANCE_UI_DIST=/app/frontend/dist \
     PORT=8000
+
+LABEL org.opencontainers.image.title="Finance AI Assistant" \
+    org.opencontainers.image.source="https://github.com/chetan1804/finance-ai-assistant" \
+    org.opencontainers.image.version=${FINANCE_RELEASE_VERSION} \
+    org.opencontainers.image.revision=${FINANCE_COMMIT_SHA} \
+    org.opencontainers.image.created=${FINANCE_BUILD_DATE}
 
 WORKDIR /app
 

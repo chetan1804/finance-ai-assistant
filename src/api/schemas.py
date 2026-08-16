@@ -17,6 +17,12 @@ class ReadinessResponse(StrictModel):
     checks: dict[str, Literal["ok", "unavailable"]]
 
 
+class VersionResponse(StrictModel):
+    version: str
+    commit: str
+    built_at: str
+
+
 class RegisterRequest(StrictModel):
     name: str = Field(min_length=1, max_length=100)
     email: str = Field(min_length=3, max_length=254)

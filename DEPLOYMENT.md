@@ -37,10 +37,15 @@ Verify the deployment:
 ```bash
 curl --fail http://127.0.0.1:8000/health
 curl --fail http://127.0.0.1:8000/ready
+curl --fail http://127.0.0.1:8000/version
 docker compose ps
 ```
 
 Open `http://127.0.0.1:8000/` and enter the generated bearer token.
+
+For managed production deployments, prefer an immutable GHCR digest generated
+by the version-tag release workflow over rebuilding source at deploy time. See
+`RELEASE.md` for publication, attestation verification, and rollback guidance.
 
 ## Managed container platforms
 

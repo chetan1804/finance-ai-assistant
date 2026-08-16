@@ -14,6 +14,7 @@ from src.api.deployment_security import DeploymentSecuritySettings
 from src.api.health import ProductionHealthChecker
 from src.api.observability import Observability, request_id_from_header
 from src.api.rate_limit import create_rate_limiter
+from src.api.release import ReleaseMetadata
 from src.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -36,6 +37,7 @@ from src.api.schemas import (
     TransactionCreate,
     TransactionCreated,
     TransactionResponse,
+    VersionResponse,
 )
 from src.database.db import initialize_database
 from src.database.finance_service import FinanceService
@@ -74,6 +76,7 @@ def create_app(
     health_checker=None,
     observability=None,
     deployment_settings=None,
+    release_metadata=None,
 ):
     """Create the API with injectable dependencies for deterministic tests."""
     load_dotenv()
@@ -99,16 +102,18 @@ def create_app(
     deployment_settings = (
         deployment_settings or DeploymentSecuritySettings.from_environment()
     )
+    release_metadata = release_metadata or ReleaseMetadata.from_environment()
 
     application = FastAPI(
         title="Finance Assistant API",
-        version="1.0.0",
+        version=release_metadata.version,
         description="Authenticated access to personalized financial insights.",
         middleware=deployment_settings.middleware(),
         root_path=deployment_settings.root_path,
     )
     application.state.observability = observability
     application.state.deployment_settings = deployment_settings
+    application.state.release_metadata = release_metadata
     application.mount(
         "/static",
         StaticFiles(directory=LEGACY_UI_DIRECTORY),
@@ -240,6 +245,10 @@ def create_app(
     @application.get("/health", response_model=HealthResponse)
     def health():
         return {"status": "ok"}
+
+    @application.get("/version", response_model=VersionResponse)
+    def version():
+        return release_metadata.response()
 
     @application.get("/ready", response_model=ReadinessResponse)
     def readiness(response: Response):

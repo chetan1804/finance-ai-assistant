@@ -125,6 +125,7 @@ Available endpoints:
 
 - `GET /health`
 - `GET /ready`
+- `GET /version`
 - `GET /metrics`
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
@@ -224,3 +225,10 @@ uses its online backup API; PostgreSQL uses custom-format `pg_dump` archives.
 Restore rejects existing destinations unless `--force` is explicitly supplied.
 See [DEPLOYMENT.md](DEPLOYMENT.md#backup-and-disaster-recovery) for restore drills,
 scheduling, and PostgreSQL client-version requirements.
+
+## Release container
+
+Pushing a semantic version tag such as `v1.0.0` runs the complete backend and
+frontend verification suite, then publishes a versioned image to GitHub
+Container Registry with an SBOM and build-provenance attestation. See
+[RELEASE.md](RELEASE.md) for the release and rollback procedure.
