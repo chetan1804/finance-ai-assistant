@@ -130,6 +130,12 @@ Available endpoints:
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/refresh`
 - `POST /api/v1/auth/logout`
+- `PATCH /api/v1/auth/password`
+- `GET /api/v1/auth/sessions`
+- `DELETE /api/v1/auth/sessions/{session_id}`
+- `POST /api/v1/auth/logout-all`
+- `POST /api/v1/privacy/export`
+- `DELETE /api/v1/privacy/account`
 - `GET /api/v1/summary`
 - `GET /api/v1/transactions`
 - `POST /api/v1/transactions`
@@ -149,6 +155,8 @@ Available endpoints:
 - Secure transaction creation, editing, and deletion with balance reconciliation
 - Account balance cards
 - User preference editing
+- Password rotation and active-session management
+- Personal-data export and permanent account deletion
 - Context-aware finance assistant chat
 
 ## Observability

@@ -1,5 +1,5 @@
--- Reference snapshot of the latest SQLite schema.
--- Runtime upgrades use the immutable files in src/database/migrations/.
+-- Bootstrap-compatible SQLite schema snapshot for unversioned databases.
+-- Runtime upgrades and the authoritative latest schema use immutable migrations.
 
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,3 +151,6 @@ CREATE INDEX IF NOT EXISTS idx_auth_sessions_access
 
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_refresh
     ON auth_sessions(refresh_token_hash, refresh_expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_active
+    ON auth_sessions(user_id, revoked_at, refresh_expires_at);

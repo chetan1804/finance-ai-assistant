@@ -8,6 +8,7 @@ import type {
   Category,
   ChatMessage,
   Preferences,
+  SecuritySession,
   Summary,
   Transaction,
   TransactionDraft,
@@ -44,6 +45,13 @@ function formatDate(value: string | null) {
     month: 'short',
     year: 'numeric',
   }).format(new Date(`${value}T00:00:00`))
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value))
 }
 
 function summaryPath(startDate: string, endDate: string) {
@@ -98,6 +106,12 @@ function App() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [lastUpdated, setLastUpdated] = useState('Not synced yet')
+  const [sessions, setSessions] = useState<SecuritySession[]>([])
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [privacyPassword, setPrivacyPassword] = useState('')
+  const [deleteConfirmation, setDeleteConfirmation] = useState('')
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -122,18 +136,20 @@ function App() {
     authToken: string,
     filters: { start: string; end: string },
   ) => {
-    const [nextSummary, nextTransactions, nextAccounts, nextCategories, nextPreferences] = await Promise.all([
+    const [nextSummary, nextTransactions, nextAccounts, nextCategories, nextPreferences, nextSessions] = await Promise.all([
       api<Summary>(authToken, summaryPath(filters.start, filters.end)),
       api<Transaction[]>(authToken, '/api/v1/transactions?limit=50'),
       api<Account[]>(authToken, '/api/v1/accounts'),
       api<Category[]>(authToken, '/api/v1/categories'),
       api<Preferences>(authToken, '/api/v1/preferences'),
+      api<SecuritySession[]>(authToken, '/api/v1/auth/sessions'),
     ])
     setSummary(nextSummary)
     setTransactions(nextTransactions)
     setAccounts(nextAccounts)
     setCategories(nextCategories)
     setPreferences(nextPreferences)
+    setSessions(nextSessions)
     setLastUpdated(`Updated ${new Intl.DateTimeFormat('en-IN', {
       hour: 'numeric', minute: '2-digit',
     }).format(new Date())}`)
@@ -145,6 +161,17 @@ function App() {
     setToken(session.access_token)
     tokenRef.current = session.access_token
     setTokenInput(session.access_token)
+  }, [])
+
+  const clearSession = useCallback(() => {
+    sessionStorage.removeItem(TOKEN_KEY)
+    sessionStorage.removeItem(REFRESH_KEY)
+    sessionStorage.removeItem(THREAD_KEY)
+    setToken('')
+    tokenRef.current = ''
+    setTokenInput('')
+    setConnected(false)
+    setSessions([])
   }, [])
 
   async function authorizedApi<T>(path: string, options: RequestInit = {}) {
@@ -268,13 +295,7 @@ function App() {
         body: JSON.stringify({ refresh_token: refreshToken }),
       }).catch(() => undefined)
     }
-    sessionStorage.removeItem(TOKEN_KEY)
-    sessionStorage.removeItem(REFRESH_KEY)
-    sessionStorage.removeItem(THREAD_KEY)
-    setToken('')
-    tokenRef.current = ''
-    setTokenInput('')
-    setConnected(false)
+    clearSession()
     notify('Signed out of this browser session.')
   }
 
@@ -403,6 +424,121 @@ function App() {
     }
   }
 
+  async function changePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (newPassword !== confirmPassword) {
+      notify('New password confirmation does not match.', true)
+      return
+    }
+    setBusy(true)
+    try {
+      const session = await authorizedApi<AuthSession>('/api/v1/auth/password', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
+      })
+      saveSession(session)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setSessions(await api<SecuritySession[]>(session.access_token, '/api/v1/auth/sessions'))
+      notify('Password changed and all previous sessions were signed out.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function revokeSession(session: SecuritySession) {
+    try {
+      await authorizedApi<null>(`/api/v1/auth/sessions/${session.id}`, {
+        method: 'DELETE',
+      })
+      if (session.current) {
+        clearSession()
+        notify('Current session revoked.')
+      } else {
+        setSessions((current) => current.filter((item) => item.id !== session.id))
+        notify('Session revoked.')
+      }
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function signOutEverywhere() {
+    if (!currentPassword) {
+      notify('Enter your current password first.', true)
+      return
+    }
+    try {
+      await authorizedApi<null>('/api/v1/auth/logout-all', {
+        method: 'POST',
+        body: JSON.stringify({ password: currentPassword }),
+      })
+      clearSession()
+      notify('All sessions have been signed out.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function downloadPersonalData() {
+    if (!privacyPassword) {
+      notify('Enter your password to export your data.', true)
+      return
+    }
+    setBusy(true)
+    try {
+      const exported = await authorizedApi<Record<string, unknown>>('/api/v1/privacy/export', {
+        method: 'POST',
+        body: JSON.stringify({ password: privacyPassword }),
+      })
+      const blob = new Blob([JSON.stringify(exported, null, 2)], {
+        type: 'application/json',
+      })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `khata-data-${today()}.json`
+      link.click()
+      URL.revokeObjectURL(url)
+      setPrivacyPassword('')
+      notify('Your personal data export was downloaded.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteAccount() {
+    if (deleteConfirmation !== 'DELETE' || !privacyPassword) {
+      notify('Enter your password and type DELETE exactly.', true)
+      return
+    }
+    if (!globalThis.confirm('Permanently delete your account and all financial data?')) return
+    setBusy(true)
+    try {
+      await authorizedApi<null>('/api/v1/privacy/account', {
+        method: 'DELETE',
+        body: JSON.stringify({
+          password: privacyPassword,
+          confirmation: deleteConfirmation,
+        }),
+      })
+      clearSession()
+      notify('Your account and stored data were permanently deleted.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function sendChat(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const question = chatQuestion.trim()
@@ -458,7 +594,7 @@ function App() {
             <form className="auth-form" onSubmit={connect}>
               {authMode === 'register' && <label htmlFor="auth-name">Name<input id="auth-name" maxLength={100} required autoComplete="name" value={authName} onChange={(event) => setAuthName(event.target.value)} /></label>}
               {authMode !== 'legacy' && <label htmlFor="auth-email">Email<input id="auth-email" type="email" maxLength={254} required autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} /></label>}
-              {authMode !== 'legacy' && <label htmlFor="auth-password">Password<div className="token-field"><input id="auth-password" type={tokenVisible ? 'text' : 'password'} minLength={12} maxLength={128} required autoComplete={authMode === 'register' ? 'new-password' : 'current-password'} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /><button className="icon-button" type="button" aria-label={tokenVisible ? 'Hide password' : 'Show password'} onClick={() => setTokenVisible((visible) => !visible)}>{tokenVisible ? 'Hide' : 'Show'}</button></div></label>}
+              {authMode !== 'legacy' && <label htmlFor="auth-password">Password<div className="token-field"><input id="auth-password" type={tokenVisible ? 'text' : 'password'} minLength={authMode === 'register' ? 15 : 1} maxLength={128} required autoComplete={authMode === 'register' ? 'new-password' : 'current-password'} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /><button className="icon-button" type="button" aria-label={tokenVisible ? 'Hide password' : 'Show password'} onClick={() => setTokenVisible((visible) => !visible)}>{tokenVisible ? 'Hide' : 'Show'}</button></div></label>}
               {authMode === 'register' && <div className="auth-onboarding-fields"><label htmlFor="auth-currency">Currency<input id="auth-currency" minLength={3} maxLength={3} required value={authCurrency} onChange={(event) => setAuthCurrency(event.target.value.toUpperCase())} /></label><label htmlFor="auth-account">First account<input id="auth-account" maxLength={100} required value={authAccount} onChange={(event) => setAuthAccount(event.target.value)} /></label></div>}
               {authMode === 'legacy' && <label htmlFor="api-token">API bearer token<div className="token-field"><input id="api-token" type={tokenVisible ? 'text' : 'password'} minLength={32} required autoComplete="off" placeholder="Paste your generated token" value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} /><button className="icon-button" type="button" aria-label={tokenVisible ? 'Hide token' : 'Show token'} onClick={() => setTokenVisible((visible) => !visible)}>{tokenVisible ? 'Hide' : 'Show'}</button></div></label>}
               <button className="primary-button full-button" type="submit" disabled={busy}><span>{authMode === 'register' ? 'Create my workspace' : 'Open dashboard'}</span><span aria-hidden="true">→</span></button>
@@ -485,6 +621,7 @@ function App() {
             <a className="nav-item" href="#accounts"><span aria-hidden="true">▣</span> Accounts</a>
             <a className="nav-item" href="#assistant"><span aria-hidden="true">✦</span> Assistant</a>
             <a className="nav-item" href="#preferences"><span aria-hidden="true">⚙</span> Preferences</a>
+            <a className="nav-item" href="#security"><span aria-hidden="true">◇</span> Security</a>
           </nav>
           <div className="sidebar-footer"><div className="secure-note"><span className="status-dot" /><span><strong>Private session</strong><small>Encrypted in transit when served over HTTPS</small></span></div><button className="text-button" type="button" onClick={() => void signOut()}>Sign out</button></div>
         </aside>
@@ -523,6 +660,33 @@ function App() {
           <section id="assistant" className="section-block assistant-section" aria-labelledby="assistant-title"><div className="assistant-intro"><span className="assistant-spark" aria-hidden="true">✦</span><p className="eyebrow">AI finance assistant</p><h2 id="assistant-title">Ask your money a question</h2><p>Get grounded answers based only on your financial data.</p><div className="prompt-chips" aria-label="Suggested questions">{['How much did I spend?', 'What are my total savings?', 'How much did I spend on food?'].map((question) => <button type="button" key={question} onClick={() => setChatQuestion(question)}>{question}</button>)}</div></div><div className="chat-card"><div className="chat-messages" aria-live="polite">{chatMessages.map((message) => <div key={message.id} className={`message ${message.user ? 'user-message' : 'assistant-message'}`}>{!message.user && <span className="avatar">ख</span>}<p>{message.text}</p></div>)}</div><form className="chat-form" onSubmit={sendChat}><label className="sr-only" htmlFor="chat-question">Ask a financial question</label><textarea id="chat-question" rows={1} maxLength={2000} required placeholder="Ask about your finances…" value={chatQuestion} onChange={(event) => setChatQuestion(event.target.value)} /><button className="send-button" type="submit" aria-label="Send question" disabled={chatBusy}>↑</button></form></div></section>
 
           <section id="preferences" className="section-block" aria-labelledby="preferences-title"><div className="section-heading"><div><p className="eyebrow">Personalization</p><h2 id="preferences-title">Preferences</h2></div></div><form className="panel preferences-form" onSubmit={savePreferences}><label>Language<input maxLength={50} required value={preferences.language} onChange={(event) => setPreferences({ ...preferences, language: event.target.value })} /></label><label>Currency<input maxLength={3} required value={preferences.currency} onChange={(event) => setPreferences({ ...preferences, currency: event.target.value })} /></label><label>Monthly income<input type="number" min="1" step="0.01" placeholder="Optional" value={preferences.monthly_income ?? ''} onChange={(event) => setPreferences({ ...preferences, monthly_income: event.target.value ? Number(event.target.value) : null })} /></label><label>Risk preference<select value={preferences.risk_preference || ''} onChange={(event) => setPreferences({ ...preferences, risk_preference: event.target.value || null })}><option value="">Not set</option><option value="conservative">Conservative</option><option value="moderate">Moderate</option><option value="aggressive">Aggressive</option></select></label><label className="toggle-label"><input type="checkbox" checked={preferences.notification_enabled} onChange={(event) => setPreferences({ ...preferences, notification_enabled: event.target.checked })} /><span className="toggle-control" /><span>Notifications enabled</span></label><button className="primary-button" type="submit" disabled={busy}>Save preferences</button></form></section>
+
+          <section id="security" className="section-block" aria-labelledby="security-title">
+            <div className="section-heading"><div><p className="eyebrow">Account control</p><h2 id="security-title">Security &amp; privacy</h2></div></div>
+            <div className="security-grid">
+              <form className="panel security-form" onSubmit={changePassword}>
+                <div className="panel-heading"><div><p className="eyebrow">Credentials</p><h3>Change password</h3></div></div>
+                <p className="panel-copy">Use at least 15 characters. Changing it signs out every previous session.</p>
+                <label>Current password<input type="password" autoComplete="current-password" maxLength={128} required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
+                <label>New password<input type="password" autoComplete="new-password" minLength={15} maxLength={128} required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
+                <label>Confirm new password<input type="password" autoComplete="new-password" minLength={15} maxLength={128} required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
+                <div className="security-actions"><button className="primary-button" type="submit" disabled={busy}>Change password</button><button className="secondary-button" type="button" onClick={() => void signOutEverywhere()}>Sign out everywhere</button></div>
+              </form>
+
+              <div className="panel sessions-panel">
+                <div className="panel-heading"><div><p className="eyebrow">Access</p><h3>Active sessions</h3></div><span className="pill">{sessions.length}</span></div>
+                <div className="session-list">{sessions.length ? sessions.map((session) => <div className="session-row" key={session.id}><div><strong>{session.current ? 'This browser' : 'Signed-in session'}</strong><small>Started {formatDateTime(session.created_at)} · expires {formatDateTime(session.refresh_expires_at)}</small></div><button className="text-button danger-text" type="button" onClick={() => void revokeSession(session)}>{session.current ? 'Sign out' : 'Revoke'}</button></div>) : <p className="empty-state">No database-backed sessions are available.</p>}</div>
+              </div>
+
+              <div className="panel privacy-panel">
+                <div className="panel-heading"><div><p className="eyebrow">Your information</p><h3>Privacy controls</h3></div></div>
+                <p className="panel-copy">Download a portable JSON copy or permanently erase your profile, finances, sessions, and conversation memory.</p>
+                <label>Password<input type="password" autoComplete="current-password" maxLength={128} value={privacyPassword} onChange={(event) => setPrivacyPassword(event.target.value)} /></label>
+                <button className="secondary-button" type="button" disabled={busy} onClick={() => void downloadPersonalData()}>Download my data</button>
+                <div className="danger-zone"><strong>Delete account permanently</strong><p>This action cannot be undone. Backups remain subject to the documented retention schedule.</p><label>Type DELETE to confirm<input maxLength={6} value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} /></label><button className="danger-button" type="button" disabled={busy} onClick={() => void deleteAccount()}>Delete my account</button></div>
+              </div>
+            </div>
+          </section>
         </main>
       </div>
 

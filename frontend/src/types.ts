@@ -72,3 +72,11 @@ export interface AuthSession {
   user_id: number
   name: string
 }
+
+export interface SecuritySession {
+  id: number
+  created_at: string
+  access_expires_at: string
+  refresh_expires_at: string
+  current: boolean
+}

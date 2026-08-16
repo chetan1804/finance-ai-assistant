@@ -7,6 +7,7 @@ live in `src/database/migrations`; PostgreSQL equivalents live in
 ```text
 001_core_schema.sql
 002_auth_sessions.sql
+003_account_security.sql
 ```
 
 The application selects PostgreSQL when `FINANCE_DATABASE_URL` is set and uses

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,7 +20,7 @@ class ReadinessResponse(StrictModel):
 class RegisterRequest(StrictModel):
     name: str = Field(min_length=1, max_length=100)
     email: str = Field(min_length=3, max_length=254)
-    password: str = Field(min_length=12, max_length=128)
+    password: str = Field(min_length=15, max_length=128)
     currency: str = Field(default="INR", min_length=3, max_length=3)
     account_name: str = Field(default="Main account", min_length=1, max_length=100)
 
@@ -36,6 +36,28 @@ class RefreshRequest(StrictModel):
 
 class LogoutRequest(StrictModel):
     refresh_token: str = Field(min_length=32, max_length=256)
+
+
+class PasswordConfirmation(StrictModel):
+    password: str = Field(min_length=1, max_length=128)
+
+
+class PasswordChangeRequest(StrictModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=15, max_length=128)
+
+
+class DeleteAccountRequest(StrictModel):
+    password: str = Field(min_length=1, max_length=128)
+    confirmation: Literal["DELETE"]
+
+
+class SessionResponse(StrictModel):
+    id: int
+    created_at: datetime
+    access_expires_at: datetime
+    refresh_expires_at: datetime
+    current: bool
 
 
 class AuthResponse(StrictModel):

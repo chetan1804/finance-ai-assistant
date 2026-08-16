@@ -126,3 +126,40 @@ def checkpoint_storage_is_ready():
     checkpoint_database.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(checkpoint_database) as connection:
         return connection.execute("SELECT 1").fetchone()[0] == 1
+
+
+def delete_user_checkpoints(user_id):
+    """Delete every conversation checkpoint owned by one user."""
+    thread_pattern = f"user-{int(user_id)}:%"
+    checkpoint_url = get_checkpoint_url()
+    if checkpoint_url:
+        tables = ("checkpoint_writes", "checkpoint_blobs", "checkpoints")
+        with get_checkpoint_pool(checkpoint_url).connection() as connection:
+            with connection.transaction():
+                for table in tables:
+                    exists = connection.execute(
+                        "SELECT to_regclass(%s)",
+                        (table,),
+                    ).fetchone()[0]
+                    if exists:
+                        connection.execute(
+                            f"DELETE FROM {table} WHERE thread_id LIKE %s",
+                            (thread_pattern,),
+                        )
+        return
+
+    checkpoint_database = get_checkpoint_database()
+    if not checkpoint_database.exists():
+        return
+    tables = ("writes", "checkpoints")
+    with sqlite3.connect(checkpoint_database) as connection:
+        for table in tables:
+            exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table,),
+            ).fetchone()
+            if exists:
+                connection.execute(
+                    f"DELETE FROM {table} WHERE thread_id LIKE ?",
+                    (thread_pattern,),
+                )

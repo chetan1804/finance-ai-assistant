@@ -24,10 +24,14 @@ from src.api.schemas import (
     ReadinessResponse,
     LoginRequest,
     LogoutRequest,
+    DeleteAccountRequest,
+    PasswordChangeRequest,
+    PasswordConfirmation,
     PreferencesResponse,
     PreferencesUpdate,
     RefreshRequest,
     RegisterRequest,
+    SessionResponse,
     SummaryResponse,
     TransactionCreate,
     TransactionCreated,
@@ -38,6 +42,7 @@ from src.database.finance_service import FinanceService
 from src.security.auth_service import (
     AuthenticationError,
     AuthService,
+    ReauthenticationError,
     RegistrationError,
 )
 
@@ -212,6 +217,16 @@ def create_app(
             content={"detail": str(error)},
         )
 
+    @application.exception_handler(ReauthenticationError)
+    async def reauthentication_error_handler(
+        _request: Request,
+        error: ReauthenticationError,
+    ):
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"detail": str(error)},
+        )
+
     def current_user(
         user_id: int = Depends(authenticator.authenticate),
     ) -> int:
@@ -283,6 +298,72 @@ def create_app(
         user_id: int = Depends(current_user),
     ):
         auth_service.logout(user_id, payload.refresh_token)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.patch(
+        "/api/v1/auth/password",
+        response_model=AuthResponse,
+    )
+    def change_password(
+        payload: PasswordChangeRequest,
+        user_id: int = Depends(current_user),
+    ):
+        return auth_service.change_password(
+            user_id,
+            payload.current_password,
+            payload.new_password,
+        )
+
+    @application.get(
+        "/api/v1/auth/sessions",
+        response_model=list[SessionResponse],
+    )
+    def sessions(
+        request: Request,
+        user_id: int = Depends(current_user),
+    ):
+        authorization = request.headers.get("authorization", "")
+        access_token = authorization.partition(" ")[2]
+        return auth_service.list_sessions(user_id, access_token)
+
+    @application.delete(
+        "/api/v1/auth/sessions/{session_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def revoke_session(
+        session_id: int,
+        user_id: int = Depends(current_user),
+    ):
+        auth_service.revoke_session(user_id, session_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.post(
+        "/api/v1/auth/logout-all",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def logout_all(
+        payload: PasswordConfirmation,
+        user_id: int = Depends(current_user),
+    ):
+        auth_service.revoke_all_sessions(user_id, payload.password)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.post("/api/v1/privacy/export")
+    def export_personal_data(
+        payload: PasswordConfirmation,
+        user_id: int = Depends(current_user),
+    ):
+        return auth_service.export_user_data(user_id, payload.password)
+
+    @application.delete(
+        "/api/v1/privacy/account",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def delete_account(
+        payload: DeleteAccountRequest,
+        user_id: int = Depends(current_user),
+    ):
+        auth_service.delete_user_data(user_id, payload.password)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @application.get("/", include_in_schema=False)

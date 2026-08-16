@@ -26,10 +26,20 @@
 - Dashboard assets use a same-origin content-security policy without inline or
   third-party scripts.
 - Passwords are hashed with Argon2id and are never stored in plaintext.
+- New passwords require at least 15 characters and reject known common choices.
 - Access and refresh tokens are random opaque values stored only as SHA-256
   hashes in the database.
 - Access sessions expire, refresh tokens rotate on use, and logout revokes the
   active database session.
+- Users can inspect and revoke active sessions or sign out every session after
+  password reauthentication.
+- Password changes require the current password, revoke all previous sessions,
+  and issue one replacement session.
+- Five consecutive password failures lock that account for 15 minutes; the
+  existing client-address limiter remains an independent control.
+- Data export and permanent account deletion require password reauthentication.
+- Account deletion removes finance, authentication, and user-prefixed LangGraph
+  checkpoint data without affecting other users.
 - Registration and login are rate-limited by client address.
 - Structured request logs exclude bodies, query values, bearer tokens, user IDs,
   and financial values; safe request IDs correlate failures across services.
@@ -40,8 +50,10 @@
 
 - The CLI still accepts a user ID directly and is only suitable for trusted local
   use. Network clients must use the authenticated API.
-- Email verification, password reset, MFA, compromised-password screening, and
-  account recovery are not implemented yet.
+- Email verification, provider-delivered password reset, MFA, and recovery are
+  not available until a trusted email or identity provider is integrated. The
+  local common-password blocklist is not a substitute for a maintained breach
+  corpus or provider-side compromised-password screening.
 - Versioned SQLite and PostgreSQL migrations are applied automatically, but
   production backups and restore testing remain operational responsibilities.
 - SQLite files are not encrypted at rest by this project. Production SQLite or
@@ -57,6 +69,9 @@
 - Browser session storage remains accessible to same-origin JavaScript. Keep the
   strict content-security policy, review frontend dependencies, and avoid adding
   third-party scripts that could access access or refresh tokens.
+- Account deletion removes live application data immediately, but encrypted
+  disaster-recovery backups expire according to the operator's retention policy.
+  They must not be restored selectively after a verified deletion request.
 
 ## Secret handling
 
