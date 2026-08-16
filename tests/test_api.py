@@ -104,6 +104,33 @@ def test_health_is_public_and_has_security_headers(api_context):
     assert response.headers["x-frame-options"] == "DENY"
 
 
+def test_request_id_is_returned_and_untrusted_values_are_replaced(api_context):
+    client = api_context["client"]
+    accepted = client.get("/health", headers={"X-Request-ID": "request-123"})
+    replaced = client.get("/health", headers={"X-Request-ID": "unsafe request"})
+
+    assert accepted.headers["x-request-id"] == "request-123"
+    assert replaced.headers["x-request-id"] != "unsafe request"
+    assert len(replaced.headers["x-request-id"]) == 32
+
+
+def test_metrics_use_route_templates_and_include_readiness(api_context):
+    client = api_context["client"]
+    client.get("/ready")
+    client.delete(
+        "/api/v1/transactions/999999",
+        headers=AUTH_HEADERS,
+    )
+
+    metrics = client.get("/metrics")
+
+    assert metrics.status_code == 200
+    assert "finance_http_requests_total" in metrics.text
+    assert 'route="/api/v1/transactions/{transaction_id}"' in metrics.text
+    assert 'dependency="database"} 1.0' in metrics.text
+    assert "999999" not in metrics.text
+
+
 def test_readiness_reports_dependency_status(api_context):
     response = api_context["client"].get("/ready")
 
@@ -142,6 +169,35 @@ def test_readiness_returns_503_when_a_dependency_is_unavailable(tmp_path):
 
     assert response.status_code == 503
     assert response.json()["status"] == "unavailable"
+
+
+def test_unhandled_errors_return_generic_response_with_request_id(tmp_path):
+    application = create_app(
+        service=FinanceService(tmp_path / "errors.db"),
+        chat_handler=lambda **_kwargs: None,
+        authenticator=TokenAuthenticator({USER_TOKEN: 1}),
+        rate_limiter=InMemoryRateLimiter(requests=100),
+    )
+
+    @application.get("/test-unhandled-error")
+    def unhandled_error():
+        raise RuntimeError("internal database detail")
+
+    response = TestClient(
+        application,
+        raise_server_exceptions=False,
+    ).get(
+        "/test-unhandled-error",
+        headers={"X-Request-ID": "failure-123"},
+    )
+
+    assert response.status_code == 500
+    assert response.headers["x-request-id"] == "failure-123"
+    assert response.json() == {
+        "detail": "Internal server error.",
+        "request_id": "failure-123",
+    }
+    assert "internal database detail" not in response.text
 
 
 def test_dashboard_and_static_assets_are_served_with_strict_csp(api_context):

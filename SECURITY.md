@@ -31,6 +31,8 @@
 - Access sessions expire, refresh tokens rotate on use, and logout revokes the
   active database session.
 - Registration and login are rate-limited by client address.
+- Structured request logs exclude bodies, query values, bearer tokens, user IDs,
+  and financial values; safe request IDs correlate failures across services.
 
 ## Important limitations
 
@@ -48,6 +50,8 @@
   multi-worker or multi-replica deployments must configure Redis.
 - TLS termination, allowed-host enforcement, and trusted-proxy configuration
   must be supplied by the production platform.
+- `/metrics` is unauthenticated for Prometheus compatibility and must be
+  restricted to the monitoring network by the production platform.
 - Browser session storage remains accessible to same-origin JavaScript. Keep the
   strict content-security policy, review frontend dependencies, and avoid adding
   third-party scripts that could access access or refresh tokens.

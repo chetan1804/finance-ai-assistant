@@ -47,6 +47,7 @@ Use the repository `Dockerfile` and configure:
 
 - Liveness path: `/health`
 - Readiness and platform health-check path: `/ready`
+- Prometheus scrape path: `/metrics`
 - Container port: the platform-provided `PORT`, falling back to `8000`
 - Persistent volume mount: `/app/data`
 - Secret: `GROQ_API_KEY`
@@ -89,6 +90,21 @@ PostgreSQL pooling is configured per application process:
 
 Multiply both maximums by the planned worker and replica count when checking the
 database provider's connection limit.
+
+## Observability configuration
+
+The API emits JSON logs to standard output. Configure them with:
+
+- `FINANCE_ENVIRONMENT`: deployment name included in each log record
+- `FINANCE_LOG_LEVEL`: standard Python logging level, defaulting to `INFO`
+- `FINANCE_LOG_FORMAT`: `json` by default; another value selects plain text
+
+Forward `X-Request-ID` from the edge proxy when available. The application
+accepts only a restricted identifier format and generates a safe replacement
+otherwise. Configure Prometheus to scrape `/metrics`, and restrict that path to
+the monitoring network at the gateway or platform level. Metrics use an
+in-process registry, so run one Uvicorn worker per container and scale with
+separately scraped replicas.
 
 For a managed PostgreSQL database, store a URL such as the following in the
 platform secret manager rather than committing it:

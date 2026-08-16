@@ -1,6 +1,7 @@
 from datetime import date
 import os
 from pathlib import Path
+import time
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Query, Request, Response, status
@@ -10,6 +11,7 @@ from dotenv import load_dotenv
 
 from src.api.auth import TokenAuthenticator
 from src.api.health import ProductionHealthChecker
+from src.api.observability import Observability, request_id_from_header
 from src.api.rate_limit import create_rate_limiter
 from src.api.schemas import (
     ChatRequest,
@@ -64,6 +66,7 @@ def create_app(
     rate_limiter=None,
     auth_rate_limiter=None,
     health_checker=None,
+    observability=None,
 ):
     """Create the API with injectable dependencies for deterministic tests."""
     load_dotenv()
@@ -85,12 +88,14 @@ def create_app(
         database_path=service.database_path,
         rate_limiters=(rate_limiter, auth_rate_limiter),
     )
+    observability = observability or Observability()
 
     application = FastAPI(
         title="Finance Assistant API",
         version="1.0.0",
         description="Authenticated access to personalized financial insights.",
     )
+    application.state.observability = observability
     application.mount(
         "/static",
         StaticFiles(directory=LEGACY_UI_DIRECTORY),
@@ -105,6 +110,10 @@ def create_app(
 
     @application.middleware("http")
     async def security_headers(request: Request, call_next):
+        request.state.request_id = request_id_from_header(
+            request.headers.get("x-request-id")
+        )
+        started_at = time.perf_counter()
         content_length = request.headers.get("content-length")
         if content_length:
             try:
@@ -112,12 +121,36 @@ def create_app(
             except ValueError:
                 too_large = True
             if too_large:
-                return JSONResponse(
+                response = JSONResponse(
                     status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                     content={"detail": "Request body is too large."},
                 )
+                response.headers["X-Request-ID"] = request.state.request_id
+                observability.record_request(
+                    request,
+                    response.status_code,
+                    started_at,
+                )
+                return response
 
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception as error:
+            observability.logger.error(
+                "unhandled_request_error",
+                extra={
+                    "request_id": request.state.request_id,
+                    "error_type": type(error).__name__,
+                },
+            )
+            response = JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={
+                    "detail": "Internal server error.",
+                    "request_id": request.state.request_id,
+                },
+            )
+        response.headers["X-Request-ID"] = request.state.request_id
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -133,6 +166,7 @@ def create_app(
                 "font-src 'self'; object-src 'none'; base-uri 'none'; "
                 "frame-ancestors 'none'"
             )
+        observability.record_request(request, response.status_code, started_at)
         return response
 
     @application.exception_handler(ValueError)
@@ -180,9 +214,19 @@ def create_app(
     @application.get("/ready", response_model=ReadinessResponse)
     def readiness(response: Response):
         result = health_checker.check()
+        observability.record_readiness(result["checks"])
         if result["status"] != "ready":
+            observability.logger.warning(
+                "dependency_readiness_failed",
+                extra={"checks": result["checks"]},
+            )
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return result
+
+    @application.get("/metrics", include_in_schema=False)
+    def metrics():
+        payload, content_type = observability.metrics_payload()
+        return Response(content=payload, media_type=content_type)
 
     @application.post(
         "/api/v1/auth/register",

@@ -125,6 +125,7 @@ Available endpoints:
 
 - `GET /health`
 - `GET /ready`
+- `GET /metrics`
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/refresh`
@@ -149,6 +150,13 @@ Available endpoints:
 - Account balance cards
 - User preference editing
 - Context-aware finance assistant chat
+
+## Observability
+
+Every API response includes an `X-Request-ID`. Application logs are structured
+JSON by default and record route templates, response status, and duration
+without logging request bodies, tokens, or financial values. `/metrics` exposes
+Prometheus-compatible request, latency, and dependency-readiness metrics.
 
 ## Run the React Frontend
 
