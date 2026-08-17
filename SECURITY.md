@@ -43,6 +43,10 @@
 - Five consecutive password failures lock that account for 15 minutes; the
   existing client-address limiter remains an independent control.
 - Data export and permanent account deletion require password reauthentication.
+- Transaction imports validate the complete UTF-8 CSV before an atomic write,
+  enforce size and row limits, and reject exact duplicate files per user.
+- CSV exports require password reauthentication and neutralize cells that could
+  execute spreadsheet formulas.
 - Account deletion removes finance, authentication, and user-prefixed LangGraph
   checkpoint data without affecting other users.
 - Registration and login are rate-limited by client address.

@@ -46,6 +46,8 @@ from src.api.schemas import (
     RecurringTransactionResponse,
     RecurringProcessRequest,
     RecurringProcessResponse,
+    TransactionImportResponse,
+    NotificationResponse,
 )
 from src.database.db import initialize_database
 from src.database.finance_service import FinanceService
@@ -54,6 +56,11 @@ from src.security.auth_service import (
     AuthService,
     ReauthenticationError,
     RegistrationError,
+)
+from src.services.transaction_import import (
+    MAX_IMPORT_BYTES,
+    parse_transaction_csv,
+    transactions_to_csv,
 )
 
 
@@ -372,6 +379,62 @@ def create_app(
     ):
         return auth_service.export_user_data(user_id, payload.password)
 
+    @application.post("/api/v1/export/transactions")
+    def export_transactions_csv(
+        payload: PasswordConfirmation,
+        user_id: int = Depends(current_user),
+    ):
+        exported = auth_service.export_user_data(user_id, payload.password)
+        accounts_by_id = {
+            item["id"]: item["name"] for item in exported["accounts"]
+        }
+        categories_by_id = {
+            item["id"]: item["name"] for item in exported["categories"]
+        }
+        transactions = [
+            {
+                **item,
+                "account": accounts_by_id.get(item["account_id"], ""),
+                "category": categories_by_id.get(item["category_id"], ""),
+            }
+            for item in exported["transactions"]
+        ]
+        return Response(
+            content=transactions_to_csv(transactions),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="finance-transactions-{date.today().isoformat()}.csv"'
+                )
+            },
+        )
+
+    @application.post(
+        "/api/v1/import/transactions",
+        response_model=TransactionImportResponse,
+    )
+    async def import_transactions_csv(
+        request: Request,
+        account_id: int = Query(gt=0),
+        source_name: str = Query(default="transactions.csv", min_length=1, max_length=255),
+        user_id: int = Depends(current_user),
+    ):
+        content_type = request.headers.get("content-type", "").partition(";")[0].strip()
+        if content_type not in {"text/csv", "application/csv", "text/plain"}:
+            return JSONResponse(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                content={"detail": "Import content type must be text/csv."},
+            )
+        content = bytearray()
+        async for chunk in request.stream():
+            content.extend(chunk)
+            if len(content) > MAX_IMPORT_BYTES:
+                raise ValueError("The CSV file must not exceed 64 KB.")
+        rows, checksum = parse_transaction_csv(bytes(content))
+        return service.import_transactions(
+            user_id, account_id, rows, checksum, source_name
+        )
+
     @application.delete(
         "/api/v1/privacy/account",
         status_code=status.HTTP_204_NO_CONTENT,
@@ -681,6 +744,53 @@ def create_app(
     )
     def delete_recurring(recurring_id: int, user_id: int = Depends(current_user)):
         service.delete_recurring_transaction(user_id, recurring_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.get(
+        "/api/v1/notifications",
+        response_model=list[NotificationResponse],
+    )
+    def notifications(
+        limit: int = Query(default=50, ge=1, le=100),
+        unread_only: bool = False,
+        user_id: int = Depends(current_user),
+    ):
+        return [
+            {
+                "id": row[0], "notification_type": row[1], "title": row[2],
+                "message": row[3], "is_read": bool(row[4]), "created_at": row[5],
+            }
+            for row in service.get_notifications(user_id, limit, unread_only)
+        ]
+
+    @application.patch(
+        "/api/v1/notifications/{notification_id}/read",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def mark_notification_read(
+        notification_id: int,
+        user_id: int = Depends(current_user),
+    ):
+        service.mark_notification_read(user_id, notification_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.post(
+        "/api/v1/notifications/read-all",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def mark_all_notifications_read(user_id: int = Depends(current_user)):
+        service.mark_all_notifications_read(user_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.delete(
+        "/api/v1/notifications/{notification_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def delete_notification(
+        notification_id: int,
+        user_id: int = Depends(current_user),
+    ):
+        service.delete_notification(user_id, notification_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @application.get(

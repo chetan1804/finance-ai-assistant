@@ -914,6 +914,11 @@ class FinanceService:
                     )
                 )
 
+            if transaction_type == "expense" and category_id is not None:
+                self._check_budget_notifications(
+                    connection, user_id, category_id, transaction_date
+                )
+
             connection.commit()
 
             return cursor.lastrowid
@@ -1357,6 +1362,8 @@ class FinanceService:
             raise ValueError("priority must be low, medium, or high.")
         if status not in VALID_GOAL_STATUSES:
             raise ValueError("status must be active, completed, or paused.")
+        if current_amount >= target_amount:
+            status = "completed"
         connection = self._connection()
         try:
             cursor = connection.execute(
@@ -1367,6 +1374,12 @@ class FinanceService:
                 """,
                 (user_id, name, target_amount, current_amount, target_date, priority, status),
             )
+            if status == "completed":
+                self._add_notification(
+                    connection, user_id, "goal_completed", "Savings goal completed",
+                    f"You reached your {name} savings goal.",
+                    f"goal:{cursor.lastrowid}:completed",
+                )
             connection.commit()
             return cursor.lastrowid
         except Exception:
@@ -1404,6 +1417,8 @@ class FinanceService:
         status = validate_text(status, "status", max_length=20).casefold()
         if priority not in VALID_GOAL_PRIORITIES or status not in VALID_GOAL_STATUSES:
             raise ValueError("Invalid goal priority or status.")
+        if current_amount >= target_amount:
+            status = "completed"
         connection = self._connection()
         try:
             cursor = connection.execute(
@@ -1416,6 +1431,12 @@ class FinanceService:
             )
             if cursor.rowcount != 1:
                 raise ValueError("Financial goal not found.")
+            if status == "completed":
+                self._add_notification(
+                    connection, user_id, "goal_completed", "Savings goal completed",
+                    f"You reached your {name} savings goal.",
+                    f"goal:{goal_id}:completed",
+                )
             connection.commit()
         except Exception:
             connection.rollback()
@@ -1632,6 +1653,10 @@ class FinanceService:
                             (delta, account_id, user_id),
                         )
                         generated.append(cursor.lastrowid)
+                        if transaction_type == "expense" and category_id is not None:
+                            self._check_budget_notifications(
+                                connection, user_id, category_id, occurrence
+                            )
                     occurrence = _advance_date(occurrence, frequency, interval_count)
                     processed += 1
                     if processed >= 500:
@@ -1646,8 +1671,231 @@ class FinanceService:
                     """,
                     (occurrence, last_occurrence, active, recurring_id, user_id),
                 )
+            if generated:
+                self._add_notification(
+                    connection, user_id, "recurring_generated",
+                    "Scheduled transactions generated",
+                    f"{len(generated)} due transaction(s) were added to your accounts.",
+                )
             connection.commit()
             return generated
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    @staticmethod
+    def _notifications_enabled(connection, user_id):
+        row = connection.execute(
+            """
+            SELECT COALESCE(notification_enabled, 1)
+            FROM user_preferences WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+        return row is None or bool(row[0])
+
+    def _add_notification(
+        self, connection, user_id, notification_type, title, message, dedup_key=None
+    ):
+        if not self._notifications_enabled(connection, user_id):
+            return
+        connection.execute(
+            """
+            INSERT INTO notifications
+                (user_id, notification_type, title, message, dedup_key)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, dedup_key) DO NOTHING
+            """,
+            (user_id, notification_type, title, message, dedup_key),
+        )
+
+    def _check_budget_notifications(self, connection, user_id, category_id, transaction_date):
+        rows = connection.execute(
+            """
+            SELECT b.id, b.amount, c.name, COALESCE(SUM(t.amount), 0)
+            FROM budgets b
+            JOIN categories c ON c.id = b.category_id
+            LEFT JOIN transactions t ON t.user_id = b.user_id
+                AND t.category_id = b.category_id
+                AND t.transaction_type = 'expense'
+                AND t.transaction_date BETWEEN b.start_date AND b.end_date
+            WHERE b.user_id = ? AND b.category_id = ?
+                AND ? BETWEEN b.start_date AND b.end_date
+            GROUP BY b.id, b.amount, c.name
+            """,
+            (user_id, category_id, transaction_date),
+        ).fetchall()
+        for budget_id, amount, category, spent in rows:
+            ratio = float(spent) / float(amount)
+            if ratio >= 1:
+                self._add_notification(
+                    connection, user_id, "budget_exceeded", "Budget limit reached",
+                    f"Your {category} spending has reached or exceeded its budget.",
+                    f"budget:{budget_id}:100",
+                )
+            elif ratio >= 0.8:
+                self._add_notification(
+                    connection, user_id, "budget_warning", "Budget is nearly used",
+                    f"Your {category} spending has used at least 80% of its budget.",
+                    f"budget:{budget_id}:80",
+                )
+
+    def import_transactions(self, user_id, account_id, rows, checksum, source_name):
+        user_id = validate_positive_id(user_id, "user_id")
+        account_id = validate_positive_id(account_id, "account_id")
+        source_name = validate_text(source_name, "source_name", max_length=255)
+        checksum = validate_text(checksum, "checksum", max_length=64)
+        if not rows or len(rows) > 500:
+            raise ValueError("An import must contain between 1 and 500 rows.")
+        connection = self._connection()
+        try:
+            existing = connection.execute(
+                "SELECT id, row_count FROM import_batches WHERE user_id = ? AND checksum = ?",
+                (user_id, checksum),
+            ).fetchone()
+            if existing:
+                return {"batch_id": existing[0], "imported_count": 0, "duplicate": True}
+            if connection.execute(
+                "SELECT 1 FROM accounts WHERE id = ? AND user_id = ? AND is_active = 1",
+                (account_id, user_id),
+            ).fetchone() is None:
+                raise ValueError("The account does not belong to the selected user.")
+
+            prepared = []
+            for index, row in enumerate(rows, start=1):
+                category_id = None
+                category_name = row.get("category")
+                if category_name:
+                    category = connection.execute(
+                        """
+                        SELECT id FROM categories
+                        WHERE LOWER(name) = LOWER(?) AND category_type = ?
+                        AND (user_id = ? OR user_id IS NULL)
+                        ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END, id
+                        LIMIT 1
+                        """,
+                        (category_name, row["transaction_type"], user_id, user_id),
+                    ).fetchone()
+                    if category is None:
+                        raise ValueError(
+                            f"Import row {index}: category '{category_name}' is not available."
+                        )
+                    category_id = category[0]
+                prepared.append((row, category_id))
+
+            batch = connection.execute(
+                """
+                INSERT INTO import_batches (user_id, source_name, checksum, row_count)
+                VALUES (?, ?, ?, ?)
+                """,
+                (user_id, source_name, checksum, len(prepared)),
+            )
+            batch_id = batch.lastrowid
+            transaction_ids = []
+            for row, category_id in prepared:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO transactions
+                        (user_id, account_id, category_id, transaction_type, amount,
+                         description, transaction_date, merchant, notes, import_batch_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (user_id, account_id, category_id, row["transaction_type"],
+                     row["amount"], row["description"], row["transaction_date"],
+                     row["merchant"], row["notes"], batch_id),
+                )
+                transaction_ids.append(cursor.lastrowid)
+                delta = row["amount"] if row["transaction_type"] == "income" else (
+                    -row["amount"] if row["transaction_type"] == "expense" else 0
+                )
+                if delta:
+                    connection.execute(
+                        "UPDATE accounts SET balance = balance + ? WHERE id = ? AND user_id = ?",
+                        (delta, account_id, user_id),
+                    )
+                if row["transaction_type"] == "expense" and category_id is not None:
+                    self._check_budget_notifications(
+                        connection, user_id, category_id, row["transaction_date"]
+                    )
+            self._add_notification(
+                connection, user_id, "import_completed", "Transaction import completed",
+                f"{len(transaction_ids)} transaction(s) were imported from {source_name}.",
+                f"import:{batch_id}",
+            )
+            connection.commit()
+            return {
+                "batch_id": batch_id,
+                "imported_count": len(transaction_ids),
+                "duplicate": False,
+                "transaction_ids": transaction_ids,
+            }
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def get_notifications(self, user_id, limit=50, unread_only=False):
+        user_id = validate_positive_id(user_id, "user_id")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ValueError("limit must be an integer between 1 and 100.")
+        query = """
+            SELECT id, notification_type, title, message, is_read, created_at
+            FROM notifications WHERE user_id = ?
+        """
+        if unread_only:
+            query += " AND is_read = 0"
+        query += " ORDER BY created_at DESC, id DESC LIMIT ?"
+        connection = self._connection()
+        try:
+            return connection.execute(query, (user_id, limit)).fetchall()
+        finally:
+            connection.close()
+
+    def mark_notification_read(self, user_id, notification_id):
+        user_id = validate_positive_id(user_id, "user_id")
+        notification_id = validate_positive_id(notification_id, "notification_id")
+        connection = self._connection()
+        try:
+            cursor = connection.execute(
+                "UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?",
+                (notification_id, user_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Notification not found.")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def mark_all_notifications_read(self, user_id):
+        user_id = validate_positive_id(user_id, "user_id")
+        connection = self._connection()
+        try:
+            connection.execute(
+                "UPDATE notifications SET is_read = 1 WHERE user_id = ?",
+                (user_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def delete_notification(self, user_id, notification_id):
+        user_id = validate_positive_id(user_id, "user_id")
+        notification_id = validate_positive_id(notification_id, "notification_id")
+        connection = self._connection()
+        try:
+            cursor = connection.execute(
+                "DELETE FROM notifications WHERE id = ? AND user_id = ?",
+                (notification_id, user_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Notification not found.")
+            connection.commit()
         except Exception:
             connection.rollback()
             raise

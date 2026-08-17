@@ -472,6 +472,99 @@ def test_recurring_processing_is_repeatable_and_updates_balance(api_context):
     assert accounts.json()[0]["balance"] == 47700
 
 
+def test_csv_import_is_atomic_duplicate_safe_and_creates_notifications(api_context):
+    client = api_context["client"]
+    client.post(
+        "/api/v1/budgets",
+        headers=AUTH_HEADERS,
+        json={
+            "category_id": api_context["food_id"], "amount": 2500,
+            "period": "monthly", "start_date": "2026-07-01",
+            "end_date": "2026-07-31",
+        },
+    )
+    content = (
+        "transaction_date,transaction_type,amount,description,merchant,category,notes\n"
+        "2026-07-12,income,1000,Refund,Market,,Returned item\n"
+        "2026-07-13,expense,600,Dinner,Cafe,Food,Team meal\n"
+    )
+    path = (
+        f"/api/v1/import/transactions?account_id={api_context['account_id']}"
+        "&source_name=bank.csv"
+    )
+    imported = client.post(
+        path, headers={**AUTH_HEADERS, "Content-Type": "text/csv"}, content=content
+    )
+    duplicate = client.post(
+        path, headers={**AUTH_HEADERS, "Content-Type": "text/csv"}, content=content
+    )
+    notifications = client.get("/api/v1/notifications", headers=AUTH_HEADERS)
+    accounts = client.get("/api/v1/accounts", headers=AUTH_HEADERS)
+
+    assert imported.status_code == 200
+    assert imported.json()["imported_count"] == 2
+    assert imported.json()["duplicate"] is False
+    assert duplicate.json()["duplicate"] is True
+    assert duplicate.json()["imported_count"] == 0
+    assert accounts.json()[0]["balance"] == 48400
+    assert {item["notification_type"] for item in notifications.json()} == {
+        "budget_exceeded", "import_completed"
+    }
+
+    notification_id = notifications.json()[0]["id"]
+    assert client.patch(
+        f"/api/v1/notifications/{notification_id}/read", headers=AUTH_HEADERS
+    ).status_code == 204
+    assert client.get(
+        "/api/v1/notifications?unread_only=true", headers=AUTH_HEADERS
+    ).json() == [
+        item for item in notifications.json()[1:] if not item["is_read"]
+    ]
+
+
+def test_invalid_csv_import_does_not_save_partial_rows(api_context):
+    client = api_context["client"]
+    before = client.get("/api/v1/transactions", headers=AUTH_HEADERS).json()
+    content = (
+        "date,type,amount,description\n"
+        "2026-07-12,income,1000,Valid\n"
+        "not-a-date,expense,500,Invalid\n"
+    )
+    response = client.post(
+        f"/api/v1/import/transactions?account_id={api_context['account_id']}",
+        headers={**AUTH_HEADERS, "Content-Type": "text/csv"},
+        content=content,
+    )
+    after = client.get("/api/v1/transactions", headers=AUTH_HEADERS).json()
+
+    assert response.status_code == 422
+    assert "CSV row 3" in response.json()["detail"]
+    assert after == before
+
+
+def test_notification_preference_suppresses_new_notifications(api_context):
+    client = api_context["client"]
+    client.put(
+        "/api/v1/preferences",
+        headers=AUTH_HEADERS,
+        json={"notification_enabled": False},
+    )
+    created = client.post(
+        "/api/v1/goals",
+        headers=AUTH_HEADERS,
+        json={
+            "name": "Already funded",
+            "target_amount": 1000,
+            "current_amount": 1000,
+            "priority": "medium",
+            "status": "active",
+        },
+    )
+
+    assert created.status_code == 201
+    assert client.get("/api/v1/notifications", headers=AUTH_HEADERS).json() == []
+
+
 def test_preferences_can_be_read_and_updated(api_context):
     client = api_context["client"]
     response = client.put(

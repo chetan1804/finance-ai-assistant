@@ -19,7 +19,7 @@ async function request<T>(
 ): Promise<T> {
   const headers = new Headers(options.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  if (options.body) headers.set('Content-Type', 'application/json')
+  if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
 
   const response = await fetch(path, { ...options, headers })
   const payload = response.status === 204
@@ -35,6 +35,25 @@ async function request<T>(
     )
   }
   return payload as T
+}
+
+export async function apiResponse(
+  token: string,
+  path: string,
+  options: RequestInit = {},
+) {
+  const headers = new Headers(options.headers)
+  headers.set('Authorization', `Bearer ${token}`)
+  if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  const response = await fetch(path, { ...options, headers })
+  if (response.status === 401) {
+    throw new ApiUnauthorizedError('Your token is invalid or has expired.')
+  }
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as ApiErrorPayload | null
+    throw new Error(errorMessage(payload, `Request failed (${response.status}).`))
+  }
+  return response
 }
 
 export function api<T>(token: string, path: string, options: RequestInit = {}) {

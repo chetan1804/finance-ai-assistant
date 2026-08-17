@@ -215,3 +215,25 @@ class RecurringProcessRequest(StrictModel):
 class RecurringProcessResponse(StrictModel):
     generated_count: int
     transaction_ids: list[int]
+
+
+class TransactionImportResponse(StrictModel):
+    batch_id: int
+    imported_count: int
+    duplicate: bool
+    transaction_ids: list[int] = Field(default_factory=list)
+
+
+class NotificationResponse(StrictModel):
+    id: int
+    notification_type: Literal[
+        "budget_warning",
+        "budget_exceeded",
+        "goal_completed",
+        "recurring_generated",
+        "import_completed",
+    ]
+    title: str
+    message: str
+    is_read: bool
+    created_at: datetime

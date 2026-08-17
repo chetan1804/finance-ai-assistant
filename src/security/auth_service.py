@@ -459,12 +459,23 @@ class AuthService:
                 "transactions": (
                     "SELECT id, account_id, category_id, transaction_type, amount, "
                     "description, transaction_date, merchant, notes, recurring_transaction_id, "
-                    "scheduled_for, created_at, updated_at "
+                    "scheduled_for, import_batch_id, created_at, updated_at "
                     "FROM transactions WHERE user_id = ? ORDER BY id",
                     ("id", "account_id", "category_id", "transaction_type", "amount",
                      "description", "transaction_date", "merchant", "notes",
                      "recurring_transaction_id", "scheduled_for",
+                     "import_batch_id",
                      "created_at", "updated_at"),
+                ),
+                "import_batches": (
+                    "SELECT id, source_name, checksum, row_count, created_at "
+                    "FROM import_batches WHERE user_id = ? ORDER BY id",
+                    ("id", "source_name", "checksum", "row_count", "created_at"),
+                ),
+                "notifications": (
+                    "SELECT id, notification_type, title, message, is_read, created_at "
+                    "FROM notifications WHERE user_id = ? ORDER BY id",
+                    ("id", "notification_type", "title", "message", "is_read", "created_at"),
                 ),
                 "recurring_transactions": (
                     "SELECT id, account_id, category_id, transaction_type, amount, "
@@ -494,7 +505,7 @@ class AuthService:
                 rows = connection.execute(query, (user_id,)).fetchall()
                 collections[name] = self._records(rows, columns)
             return {
-                "export_version": 2,
+                "export_version": 3,
                 "exported_at": datetime.now(timezone.utc).isoformat(),
                 "profile": self._records(
                     [profile],
@@ -521,7 +532,9 @@ class AuthService:
             for table in (
                 "auth_sessions",
                 "user_credentials",
+                "notifications",
                 "transactions",
+                "import_batches",
                 "recurring_transactions",
                 "budgets",
                 "financial_goals",

@@ -322,6 +322,40 @@ def test_privacy_export_contains_user_data_without_authentication_secrets(tmp_pa
     assert registered["access_token"].casefold() not in serialized
 
 
+def test_password_confirmed_csv_export_neutralizes_spreadsheet_formulas(tmp_path):
+    client, _ = auth_client(tmp_path)
+    registered = register_user(client)
+    headers = bearer(registered)
+    account_id = client.get("/api/v1/accounts", headers=headers).json()[0]["id"]
+    client.post(
+        "/api/v1/transactions",
+        headers=headers,
+        json={
+            "account_id": account_id,
+            "transaction_type": "expense",
+            "amount": 100,
+            "description": "=SUM(A1:A2)",
+            "transaction_date": "2026-08-01",
+        },
+    )
+
+    denied = client.post(
+        "/api/v1/export/transactions",
+        headers=headers,
+        json={"password": "wrong-password"},
+    )
+    exported = client.post(
+        "/api/v1/export/transactions",
+        headers=headers,
+        json={"password": "correct-horse-battery"},
+    )
+
+    assert denied.status_code == 403
+    assert exported.status_code == 200
+    assert exported.headers["content-type"].startswith("text/csv")
+    assert "'=SUM(A1:A2)" in exported.text
+
+
 def test_account_deletion_removes_finance_auth_and_checkpoint_data(
     monkeypatch,
     tmp_path,

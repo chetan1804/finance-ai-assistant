@@ -124,3 +124,12 @@ export interface RecurringTransaction {
   account: string
   category: string | null
 }
+
+export interface Notification {
+  id: number
+  notification_type: 'budget_warning' | 'budget_exceeded' | 'goal_completed' | 'recurring_generated' | 'import_completed'
+  title: string
+  message: string
+  is_read: boolean
+  created_at: string
+}

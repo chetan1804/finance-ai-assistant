@@ -1,0 +1,32 @@
+CREATE TABLE import_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    source_name TEXT NOT NULL,
+    checksum TEXT NOT NULL,
+    row_count INTEGER NOT NULL CHECK(row_count > 0),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    UNIQUE(user_id, checksum)
+);
+
+ALTER TABLE transactions ADD COLUMN import_batch_id INTEGER
+    REFERENCES import_batches(id);
+
+CREATE TABLE notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    notification_type TEXT NOT NULL CHECK(notification_type IN (
+        'budget_warning', 'budget_exceeded', 'goal_completed',
+        'recurring_generated', 'import_completed'
+    )),
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    is_read INTEGER NOT NULL DEFAULT 0 CHECK(is_read IN (0, 1)),
+    dedup_key TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    UNIQUE(user_id, dedup_key)
+);
+
+CREATE INDEX notifications_inbox
+    ON notifications(user_id, is_read, created_at);

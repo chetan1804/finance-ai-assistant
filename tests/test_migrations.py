@@ -12,12 +12,12 @@ SCHEMA_SNAPSHOT = Path(__file__).resolve().parents[1] / "src" / "database" / "sc
 def test_migrations_apply_in_order_and_are_idempotent(tmp_path):
     database_path = tmp_path / "finance.db"
 
-    assert apply_migrations(database_path) == [1, 2, 3, 4]
+    assert apply_migrations(database_path) == [1, 2, 3, 4, 5]
     assert apply_migrations(database_path) == []
     assert migration_status(database_path) == {
         "backend": "sqlite",
-        "current_version": 4,
-        "latest_version": 4,
+        "current_version": 5,
+        "latest_version": 5,
         "pending": [],
     }
 
@@ -33,6 +33,7 @@ def test_migrations_apply_in_order_and_are_idempotent(tmp_path):
         (2, "auth_sessions"),
         (3, "account_security"),
         (4, "recurring_transactions"),
+        (5, "imports_notifications"),
     ]
 
 
@@ -111,7 +112,7 @@ def test_existing_unversioned_database_is_preserved(tmp_path):
     finally:
         connection.close()
 
-    assert apply_migrations(database_path) == [1, 2, 3, 4]
+    assert apply_migrations(database_path) == [1, 2, 3, 4, 5]
 
     connection = sqlite3.connect(database_path)
     try:

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { api, ApiUnauthorizedError, publicApi } from './api'
+import { api, apiResponse, ApiUnauthorizedError, publicApi } from './api'
 import type {
   Account,
   AuthSession,
@@ -10,6 +10,7 @@ import type {
   ChatMessage,
   Preferences,
   Goal,
+  Notification,
   RecurringTransaction,
   SecuritySession,
   Summary,
@@ -112,6 +113,7 @@ function App() {
   const [budgets, setBudgets] = useState<Budget[]>([])
   const [goals, setGoals] = useState<Goal[]>([])
   const [recurring, setRecurring] = useState<RecurringTransaction[]>([])
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const [preferences, setPreferences] = useState(defaultPreferences)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -122,6 +124,8 @@ function App() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [privacyPassword, setPrivacyPassword] = useState('')
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
+  const [importAccountId, setImportAccountId] = useState('')
+  const [importFile, setImportFile] = useState<File | null>(null)
   const [budgetDraft, setBudgetDraft] = useState({
     category_id: '', amount: '', period: 'monthly', start_date: today(), end_date: today(),
   })
@@ -159,7 +163,7 @@ function App() {
     await api(authToken, '/api/v1/recurring-transactions/process', {
       method: 'POST', body: JSON.stringify({}),
     })
-    const [nextSummary, nextTransactions, nextAccounts, nextCategories, nextPreferences, nextSessions, nextBudgets, nextGoals, nextRecurring] = await Promise.all([
+    const [nextSummary, nextTransactions, nextAccounts, nextCategories, nextPreferences, nextSessions, nextBudgets, nextGoals, nextRecurring, nextNotifications] = await Promise.all([
       api<Summary>(authToken, summaryPath(filters.start, filters.end)),
       api<Transaction[]>(authToken, '/api/v1/transactions?limit=50'),
       api<Account[]>(authToken, '/api/v1/accounts'),
@@ -169,6 +173,7 @@ function App() {
       api<Budget[]>(authToken, '/api/v1/budgets'),
       api<Goal[]>(authToken, '/api/v1/goals'),
       api<RecurringTransaction[]>(authToken, '/api/v1/recurring-transactions'),
+      api<Notification[]>(authToken, '/api/v1/notifications'),
     ])
     setSummary(nextSummary)
     setTransactions(nextTransactions)
@@ -179,6 +184,7 @@ function App() {
     setBudgets(nextBudgets)
     setGoals(nextGoals)
     setRecurring(nextRecurring)
+    setNotifications(nextNotifications)
     setLastUpdated(`Updated ${new Intl.DateTimeFormat('en-IN', {
       hour: 'numeric', minute: '2-digit',
     }).format(new Date())}`)
@@ -218,6 +224,20 @@ function App() {
     }
   }
 
+  async function authorizedResponse(path: string, options: RequestInit = {}) {
+    try {
+      return await apiResponse(tokenRef.current, path, options)
+    } catch (error) {
+      const refreshToken = sessionStorage.getItem(REFRESH_KEY)
+      if (!(error instanceof ApiUnauthorizedError) || !refreshToken) throw error
+      const session = await publicApi<AuthSession>('/api/v1/auth/refresh', {
+        method: 'POST', body: JSON.stringify({ refresh_token: refreshToken }),
+      })
+      saveSession(session)
+      return apiResponse(session.access_token, path, options)
+    }
+  }
+
   useEffect(() => {
     if (!INITIAL_TOKEN) return
     const restore = async () => {
@@ -252,6 +272,7 @@ function App() {
   }, [dialogOpen])
 
   const currency = summary?.currency || preferences.currency || 'INR'
+  const unreadNotifications = notifications.filter((item) => !item.is_read).length
   const rate = summary && summary.income > 0
     ? (summary.savings / summary.income) * 100
     : 0
@@ -701,6 +722,101 @@ function App() {
     }
   }
 
+  function downloadBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function downloadTransactionsCsv() {
+    if (!privacyPassword) {
+      notify('Enter your password to export transactions.', true)
+      return
+    }
+    setBusy(true)
+    try {
+      const response = await authorizedResponse('/api/v1/export/transactions', {
+        method: 'POST', body: JSON.stringify({ password: privacyPassword }),
+      })
+      downloadBlob(await response.blob(), `finance-transactions-${today()}.csv`)
+      setPrivacyPassword('')
+      notify('Transaction CSV downloaded.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function importTransactions(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!importFile || !importAccountId) {
+      notify('Choose a CSV file and destination account.', true)
+      return
+    }
+    setBusy(true)
+    try {
+      const params = new URLSearchParams({
+        account_id: importAccountId,
+        source_name: importFile.name,
+      })
+      const response = await authorizedResponse(`/api/v1/import/transactions?${params}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/csv' },
+        body: await importFile.text(),
+      })
+      const result = await response.json() as { imported_count: number; duplicate: boolean }
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
+      setImportFile(null)
+      notify(result.duplicate
+        ? 'This exact CSV was already imported; no duplicate transactions were added.'
+        : `${result.imported_count} transaction${result.imported_count === 1 ? '' : 's'} imported.`)
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function downloadCsvTemplate() {
+    const content = 'transaction_date,transaction_type,amount,description,merchant,category,notes\n2026-08-01,expense,250,Lunch,Cafe,Food,Example row\n'
+    downloadBlob(new Blob([content], { type: 'text/csv' }), 'transaction-import-template.csv')
+  }
+
+  async function markNotificationRead(item: Notification) {
+    if (item.is_read) return
+    try {
+      await authorizedApi<null>(`/api/v1/notifications/${item.id}/read`, { method: 'PATCH' })
+      setNotifications((current) => current.map((entry) => (
+        entry.id === item.id ? { ...entry, is_read: true } : entry
+      )))
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function markAllNotificationsRead() {
+    try {
+      await authorizedApi<null>('/api/v1/notifications/read-all', { method: 'POST' })
+      setNotifications((current) => current.map((item) => ({ ...item, is_read: true })))
+      notify('All notifications marked as read.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function deleteNotification(item: Notification) {
+    try {
+      await authorizedApi<null>(`/api/v1/notifications/${item.id}`, { method: 'DELETE' })
+      setNotifications((current) => current.filter((entry) => entry.id !== item.id))
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
   async function deleteAccount() {
     if (deleteConfirmation !== 'DELETE' || !privacyPassword) {
       notify('Enter your password and type DELETE exactly.', true)
@@ -805,7 +921,9 @@ function App() {
             <a className="nav-item active" href="#overview"><span aria-hidden="true">⌂</span> Overview</a>
             <a className="nav-item" href="#planning"><span aria-hidden="true">◎</span> Planning</a>
             <a className="nav-item" href="#recurring"><span aria-hidden="true">↻</span> Recurring</a>
+            <a className="nav-item" href="#notifications"><span aria-hidden="true">♢</span> Notifications{unreadNotifications ? ` (${unreadNotifications})` : ''}</a>
             <a className="nav-item" href="#transactions"><span aria-hidden="true">↕</span> Transactions</a>
+            <a className="nav-item" href="#data-transfer"><span aria-hidden="true">⇄</span> Import / export</a>
             <a className="nav-item" href="#accounts"><span aria-hidden="true">▣</span> Accounts</a>
             <a className="nav-item" href="#assistant"><span aria-hidden="true">✦</span> Assistant</a>
             <a className="nav-item" href="#preferences"><span aria-hidden="true">⚙</span> Preferences</a>
@@ -817,7 +935,7 @@ function App() {
         <main className="main-content">
           <header className="topbar">
             <div><p className="eyebrow">Financial command center</p><h1>Good {greeting}.</h1></div>
-            <div className="topbar-actions"><span className="last-updated">{lastUpdated}</span><button className="secondary-button" type="button" disabled={busy} onClick={() => void refreshDashboard()}>↻ Refresh</button><button className="primary-button" type="button" onClick={openAddTransaction}>＋ Add transaction</button></div>
+            <div className="topbar-actions"><span className="last-updated">{lastUpdated}</span><a className="notification-button" href="#notifications" aria-label={`${unreadNotifications} unread notifications`}>♢{unreadNotifications > 0 && <span>{unreadNotifications}</span>}</a><button className="secondary-button" type="button" disabled={busy} onClick={() => void refreshDashboard()}>↻ Refresh</button><button className="primary-button" type="button" onClick={openAddTransaction}>＋ Add transaction</button></div>
           </header>
 
           <section id="overview" className="section-block" aria-labelledby="overview-title">
@@ -883,6 +1001,11 @@ function App() {
             </div>
           </section>
 
+          <section id="notifications" className="section-block" aria-labelledby="notifications-title">
+            <div className="section-heading"><div><p className="eyebrow">Stay informed</p><h2 id="notifications-title">Notifications</h2></div>{unreadNotifications > 0 && <button className="secondary-button" type="button" onClick={() => void markAllNotificationsRead()}>Mark all read</button>}</div>
+            <div className="notification-list">{notifications.length ? notifications.map((item) => <article className={`notification-card${item.is_read ? '' : ' unread'}`} key={item.id} onClick={() => void markNotificationRead(item)}><span className="notification-icon" aria-hidden="true">{item.notification_type.startsWith('budget') ? '◔' : item.notification_type === 'goal_completed' ? '✓' : item.notification_type === 'import_completed' ? '⇣' : '↻'}</span><div><strong>{item.title}</strong><p>{item.message}</p><small>{formatDateTime(item.created_at)}</small></div><button className="row-action delete-action" type="button" aria-label={`Delete ${item.title} notification`} onClick={(event) => { event.stopPropagation(); void deleteNotification(item) }}>×</button></article>) : <div className="panel empty-state">No notifications yet. Budget, goal, recurring, and import updates will appear here.</div>}</div>
+          </section>
+
           <section id="transactions" className="section-block" aria-labelledby="transactions-title">
             <div className="section-heading"><div><p className="eyebrow">Activity</p><h2 id="transactions-title">Recent transactions</h2></div><button className="secondary-button" type="button" onClick={openAddTransaction}>Add transaction</button></div>
             <div className="table-panel"><div className="table-scroll"><table><thead><tr><th>Description</th><th>Category</th><th>Account</th><th>Date</th><th className="amount-cell">Amount</th><th className="actions-heading">Actions</th></tr></thead><tbody>{transactions.length ? transactions.map((transaction) => {
@@ -893,6 +1016,25 @@ function App() {
           </section>
 
           <section id="accounts" className="section-block" aria-labelledby="accounts-title"><div className="section-heading"><div><p className="eyebrow">Connected money</p><h2 id="accounts-title">Accounts</h2></div></div><div className="account-grid">{accounts.length ? accounts.map((account) => <article className="account-card" key={account.id}><small>{account.account_type} · {account.institution || 'Personal'}</small><h3>{account.name}</h3><strong>{formatMoney(account.balance, account.currency)}</strong></article>) : <p className="empty-state">No active accounts found.</p>}</div></section>
+
+          <section id="data-transfer" className="section-block" aria-labelledby="data-transfer-title">
+            <div className="section-heading"><div><p className="eyebrow">Portable records</p><h2 id="data-transfer-title">Import &amp; export</h2></div></div>
+            <div className="transfer-grid">
+              <form className="panel transfer-panel" onSubmit={importTransactions}>
+                <div className="panel-heading"><div><p className="eyebrow">Bring transactions in</p><h3>CSV import</h3></div></div>
+                <p className="panel-copy">Up to 500 UTF-8 rows. The complete file is validated before anything is saved, and an exact file cannot be imported twice.</p>
+                <label>Destination account<select required value={importAccountId} onChange={(event) => setImportAccountId(event.target.value)}><option value="">Choose account</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+                <label>CSV file<input type="file" accept=".csv,text/csv" required onChange={(event) => setImportFile(event.target.files?.[0] || null)} /></label>
+                <div className="security-actions"><button className="primary-button" type="submit" disabled={busy}>Import transactions</button><button className="text-button" type="button" onClick={downloadCsvTemplate}>Download template</button></div>
+              </form>
+              <div className="panel transfer-panel">
+                <div className="panel-heading"><div><p className="eyebrow">Take your data out</p><h3>Secure exports</h3></div></div>
+                <p className="panel-copy">Password confirmation protects both portable exports. CSV values are neutralized against spreadsheet formulas.</p>
+                <label>Password<input type="password" autoComplete="current-password" maxLength={128} value={privacyPassword} onChange={(event) => setPrivacyPassword(event.target.value)} /></label>
+                <div className="export-actions"><button className="secondary-button" type="button" disabled={busy} onClick={() => void downloadTransactionsCsv()}>Download transaction CSV</button><button className="secondary-button" type="button" disabled={busy} onClick={() => void downloadPersonalData()}>Download complete JSON</button></div>
+              </div>
+            </div>
+          </section>
 
           <section id="assistant" className="section-block assistant-section" aria-labelledby="assistant-title"><div className="assistant-intro"><span className="assistant-spark" aria-hidden="true">✦</span><p className="eyebrow">AI finance assistant</p><h2 id="assistant-title">Ask your money a question</h2><p>Get grounded answers based only on your financial data.</p><div className="prompt-chips" aria-label="Suggested questions">{['How much did I spend?', 'What are my total savings?', 'How much did I spend on food?'].map((question) => <button type="button" key={question} onClick={() => setChatQuestion(question)}>{question}</button>)}</div></div><div className="chat-card"><div className="chat-messages" aria-live="polite">{chatMessages.map((message) => <div key={message.id} className={`message ${message.user ? 'user-message' : 'assistant-message'}`}>{!message.user && <span className="avatar">ख</span>}<p>{message.text}</p></div>)}</div><form className="chat-form" onSubmit={sendChat}><label className="sr-only" htmlFor="chat-question">Ask a financial question</label><textarea id="chat-question" rows={1} maxLength={2000} required placeholder="Ask about your finances…" value={chatQuestion} onChange={(event) => setChatQuestion(event.target.value)} /><button className="send-button" type="submit" aria-label="Send question" disabled={chatBusy}>↑</button></form></div></section>
 

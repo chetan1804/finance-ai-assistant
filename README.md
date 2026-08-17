@@ -161,6 +161,8 @@ Available endpoints:
 - `DELETE /api/v1/auth/sessions/{session_id}`
 - `POST /api/v1/auth/logout-all`
 - `POST /api/v1/privacy/export`
+- `POST /api/v1/export/transactions`
+- `POST /api/v1/import/transactions`
 - `DELETE /api/v1/privacy/account`
 - `GET /api/v1/summary`
 - `GET /api/v1/transactions`
@@ -174,6 +176,10 @@ Available endpoints:
 - `GET|POST /api/v1/recurring-transactions`
 - `PUT|DELETE /api/v1/recurring-transactions/{recurring_id}`
 - `POST /api/v1/recurring-transactions/process`
+- `GET /api/v1/notifications`
+- `PATCH /api/v1/notifications/{notification_id}/read`
+- `POST /api/v1/notifications/read-all`
+- `DELETE /api/v1/notifications/{notification_id}`
 - `GET /api/v1/preferences`
 - `PUT /api/v1/preferences`
 - `POST /api/v1/chat`
@@ -190,11 +196,17 @@ Available endpoints:
 - Savings goals with target, saved amount, priority, status, and progress
 - Daily, weekly, monthly, and yearly recurring income or expenses
 - Idempotent due-transaction generation with pause, resume, and end dates
+- Atomic, duplicate-safe transaction CSV import with a downloadable template
+- Password-confirmed complete JSON and spreadsheet-safe CSV exports
+- Persistent budget, goal, recurring, and import notifications
 - Account balance cards
 - User preference editing
 - Password rotation and active-session management
 - Personal-data export and permanent account deletion
 - Context-aware finance assistant chat
+
+See [IMPORT_EXPORT.md](IMPORT_EXPORT.md) for the CSV format, validation limits,
+API example, export protections, and notification behavior.
 
 ## Observability
 
