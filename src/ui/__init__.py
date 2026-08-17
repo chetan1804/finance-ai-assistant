@@ -1,1 +1,1 @@
-"""Browser interface for the finance assistant."""
+"""Browser interface for ArthNivo."""

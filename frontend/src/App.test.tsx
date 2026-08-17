@@ -10,7 +10,7 @@ describe('App authentication screen', () => {
     render(<App />)
 
     const password = screen.getByLabelText('Password')
-    expect(screen.getByRole('heading', { name: 'Welcome to Khata' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Welcome to ArthNivo' })).toBeInTheDocument()
     expect(password).toHaveAttribute('type', 'password')
 
     await user.click(screen.getByRole('button', { name: 'Show password' }))

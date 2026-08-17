@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: arthnivo-demo
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: FINANCE_DATABASE_URL
+        sync: false
+      - key: FINANCE_REDIS_URL
+        sync: false
+      - key: FINANCE_ALLOWED_HOSTS
+        sync: false
+      - key: FINANCE_ENVIRONMENT
+        value: production
+      - key: FINANCE_HTTPS_REDIRECT
+        value: "true"
+      - key: FINANCE_HSTS_SECONDS
+        value: "31536000"
+      - key: FINANCE_FORWARDED_ALLOW_IPS
+        value: "*"
+      - key: FINANCE_LOG_LEVEL
+        value: INFO
+      - key: FINANCE_LOG_FORMAT
+        value: json
+      - key: FINANCE_DB_POOL_MIN_SIZE
+        value: "0"
+      - key: FINANCE_DB_POOL_MAX_SIZE
+        value: "5"
+      - key: FINANCE_CHECKPOINT_POOL_MIN_SIZE
+        value: "0"
+      - key: FINANCE_CHECKPOINT_POOL_MAX_SIZE
+        value: "3"

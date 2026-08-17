@@ -1,6 +1,6 @@
 # AI Reliability
 
-The finance assistant uses the LLM only to classify a question and extract an
+ArthNivo uses the LLM only to classify a question and extract an
 optional category and date range. The selected query is allowlisted, all
 database access remains scoped to the authenticated user, and the final answer
 is rendered from the verified database amount without another LLM call.

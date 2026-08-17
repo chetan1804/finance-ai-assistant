@@ -4,7 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="A private dashboard for personal financial insights.">
-  <title>Khata — Personal Finance</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <meta name="theme-color" content="#123d31">
+  <title>ArthNivo — Personal Finance</title>
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/app.js" defer></script>
 </head>
@@ -14,9 +16,9 @@
 
   <section id="auth-view" class="auth-view" aria-labelledby="auth-title">
     <div class="auth-card">
-      <div class="brand-mark" aria-hidden="true">ख</div>
+      <div class="brand-mark" aria-hidden="true"><img src="/favicon.svg" alt=""></div>
       <p class="eyebrow">Private finance workspace</p>
-      <h1 id="auth-title">Welcome to Khata</h1>
+      <h1 id="auth-title">Welcome to ArthNivo</h1>
       <p class="auth-copy">Your financial picture, thoughtfully organized and securely yours.</p>
       <form id="auth-form" class="auth-form">
         <label for="api-token">API bearer token</label>
@@ -35,9 +37,9 @@
 
   <div id="app-shell" class="app-shell" hidden>
     <aside class="sidebar">
-      <a class="brand" href="#overview" aria-label="Khata dashboard home">
-        <span class="brand-mark small" aria-hidden="true">ख</span>
-        <span><strong>Khata</strong><small>Personal finance</small></span>
+      <a class="brand" href="#overview" aria-label="ArthNivo dashboard home">
+        <span class="brand-mark small" aria-hidden="true"><img src="/favicon.svg" alt=""></span>
+        <span><strong>ArthNivo</strong><small>Personal finance</small></span>
       </a>
       <nav class="nav-list" aria-label="Dashboard navigation">
         <a class="nav-item active" href="#overview"><span aria-hidden="true">⌂</span> Overview</a>
@@ -142,7 +144,7 @@
       <section id="assistant" class="section-block assistant-section" aria-labelledby="assistant-title">
         <div class="assistant-intro">
           <span class="assistant-spark" aria-hidden="true">✦</span>
-          <p class="eyebrow">AI finance assistant</p>
+          <p class="eyebrow">ArthNivo AI assistant</p>
           <h2 id="assistant-title">Ask your money a question</h2>
           <p>Get grounded answers based only on your financial data.</p>
           <div class="prompt-chips" aria-label="Suggested questions">
@@ -153,7 +155,7 @@
         </div>
         <div class="chat-card">
           <div id="chat-messages" class="chat-messages" aria-live="polite">
-            <div class="message assistant-message"><span class="avatar">ख</span><p>Hi — ask me about your income, spending, savings, or categories.</p></div>
+            <div class="message assistant-message"><span class="avatar"><img src="/favicon.svg" alt=""></span><p>Hi — I’m ArthNivo. Ask me about your income, spending, savings, or categories.</p></div>
           </div>
           <form id="chat-form" class="chat-form">
             <label class="sr-only" for="chat-question">Ask a financial question</label>

@@ -42,14 +42,14 @@ def get_checkpoint_url():
     return get_database_url()
 
 
-def _checkpoint_pool_size(name, default):
+def _checkpoint_pool_size(name, default, *, minimum=1):
     value = os.getenv(name)
     try:
         parsed = int(value) if value is not None else default
     except ValueError as error:
         raise RuntimeError(f"{name} must be an integer.") from error
-    if parsed < 1:
-        raise RuntimeError(f"{name} must be at least 1.")
+    if parsed < minimum:
+        raise RuntimeError(f"{name} must be at least {minimum}.")
     return parsed
 
 
@@ -57,7 +57,9 @@ def get_checkpoint_pool(checkpoint_url=None):
     checkpoint_url = checkpoint_url or get_checkpoint_url()
     if not checkpoint_url:
         return None
-    min_size = _checkpoint_pool_size("FINANCE_CHECKPOINT_POOL_MIN_SIZE", 1)
+    min_size = _checkpoint_pool_size(
+        "FINANCE_CHECKPOINT_POOL_MIN_SIZE", 1, minimum=0
+    )
     max_size = _checkpoint_pool_size("FINANCE_CHECKPOINT_POOL_MAX_SIZE", 5)
     if min_size > max_size:
         raise RuntimeError(

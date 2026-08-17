@@ -20,7 +20,7 @@ from src.security.validation import validate_chat_request
 
 
 MAX_CONTEXT_MESSAGES = 20
-logger = logging.getLogger("finance_assistant")
+logger = logging.getLogger("arthnivo")
 
 
 llm = None
@@ -138,7 +138,7 @@ def generate_response(state: FinanceState):
         )
     elif status == "unavailable":
         answer = (
-            "The finance assistant is temporarily unavailable. Your financial "
+            "ArthNivo is temporarily unavailable. Your financial "
             "data was not changed; please try again shortly."
         )
     elif result is None:

@@ -23,8 +23,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     FINANCE_UI_DIST=/app/frontend/dist \
     PORT=8000
 
-LABEL org.opencontainers.image.title="Finance AI Assistant" \
-    org.opencontainers.image.source="https://github.com/chetan1804/finance-ai-assistant" \
+LABEL org.opencontainers.image.title="ArthNivo" \
+    org.opencontainers.image.source="https://github.com/chetan1804/arthnivo" \
     org.opencontainers.image.version=${FINANCE_RELEASE_VERSION} \
     org.opencontainers.image.revision=${FINANCE_COMMIT_SHA} \
     org.opencontainers.image.created=${FINANCE_BUILD_DATE}

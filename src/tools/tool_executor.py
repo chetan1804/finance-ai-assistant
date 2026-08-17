@@ -47,7 +47,7 @@ class FinanceToolExecutor:
         messages = [
             SystemMessage(
                 content="""
-            You are a personal finance assistant for users in India.
+            You are ArthNivo, a personal finance assistant for users in India.
 
             Use the available tools to answer financial questions.
 

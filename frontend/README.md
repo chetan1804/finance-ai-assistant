@@ -1,4 +1,4 @@
-# Khata React frontend
+# ArthNivo React frontend
 
 React 19, TypeScript, and Vite power the next-level dashboard. During local
 development, Vite proxies `/api` and `/health` to FastAPI at

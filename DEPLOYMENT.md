@@ -165,6 +165,12 @@ the monitoring network at the gateway or platform level. Metrics use an
 in-process registry, so run one Uvicorn worker per container and scale with
 separately scraped replicas.
 
+For the repository's free Render demonstration configuration, `/health` is used
+as the continuous platform probe so serverless PostgreSQL and Redis can idle.
+Run `/ready` before a demonstration to verify all dependencies. See
+`INTERVIEW_DEMO_DEPLOYMENT.md`; this exception is for a sleeping demo service,
+not the recommended health policy for an always-on production release.
+
 ## HTTPS and proxy boundary
 
 TLS terminates at the managed platform or reverse proxy. With
@@ -195,8 +201,8 @@ python -m scripts.verify_backup "${FINANCE_BACKUP_DIR}/<backup-directory>"
 Docker Compose stores backups on the separate `finance-backups` volume:
 
 ```bash
-docker compose exec finance-assistant python -m scripts.backup_data
-docker compose exec finance-assistant \
+docker compose exec arthnivo python -m scripts.backup_data
+docker compose exec arthnivo \
   python -m scripts.verify_backup /app/backups/<backup-directory>
 ```
 

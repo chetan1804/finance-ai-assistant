@@ -15,7 +15,7 @@ def main():
         FinancialResponseGenerator()
     )
 
-    print("\nFinance AI Assistant")
+    print("\nArthNivo AI Assistant")
     print("Type 'exit' to quit.\n")
 
     while True:

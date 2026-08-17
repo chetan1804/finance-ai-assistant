@@ -127,7 +127,7 @@ def create_app(
     release_metadata = release_metadata or ReleaseMetadata.from_environment()
 
     application = FastAPI(
-        title="Finance Assistant API",
+        title="ArthNivo API",
         version=release_metadata.version,
         description="Authenticated access to personalized financial insights.",
         middleware=deployment_settings.middleware(),
@@ -411,7 +411,7 @@ def create_app(
             media_type="text/csv; charset=utf-8",
             headers={
                 "Content-Disposition": (
-                    f'attachment; filename="finance-transactions-{date.today().isoformat()}.csv"'
+                    f'attachment; filename="arthnivo-transactions-{date.today().isoformat()}.csv"'
                 )
             },
         )

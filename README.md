@@ -1,11 +1,11 @@
-# Finance Assistant
+# ArthNivo
 
-An AI-powered personal finance assistant that understands the user's
+ArthNivo is an AI-powered personal finance assistant that understands the user's
 financial data, spending behavior, goals, and preferences.
 
 ## Project Vision
 
-Build a finance assistant progressively using:
+Build ArthNivo progressively using:
 
 - Python
 - Data Analysis
@@ -215,7 +215,7 @@ Available endpoints:
 - User preference editing
 - Password rotation and active-session management
 - Personal-data export and permanent account deletion
-- Context-aware finance assistant chat
+- Context-aware ArthNivo AI chat
 - Assistant queries for total EMIs (including a selected loan type) and total
   investment contributions
 
@@ -264,6 +264,11 @@ runtime dependency set. SQLite remains the zero-configuration default;
 PostgreSQL can be selected with `FINANCE_DATABASE_URL`. See
 [DEPLOYMENT.md](DEPLOYMENT.md) for first-run bootstrap, managed-platform
 configuration, backup, and scaling guidance.
+
+For a zero-cost interview demonstration, use the included Render Blueprint with
+external Neon PostgreSQL and Upstash Redis. Follow
+[INTERVIEW_DEMO_DEPLOYMENT.md](INTERVIEW_DEMO_DEPLOYMENT.md) for account setup,
+secret configuration, fictional demo data, verification, and free-tier limits.
 
 Production mode validates allowed hosts, redirects trusted HTTP requests to
 HTTPS, emits HSTS on secure responses, and permits cross-origin browser access

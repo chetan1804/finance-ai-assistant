@@ -7,7 +7,7 @@ def main():
 
     agent = FinanceToolExecutor()
 
-    print("\nFinance AI Tool Assistant")
+    print("\nArthNivo AI Tool Assistant")
     print("Type 'exit' to quit.\n")
 
     while True:

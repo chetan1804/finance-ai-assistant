@@ -207,7 +207,7 @@ def test_dashboard_and_static_assets_are_served_with_strict_csp(api_context):
     styles = client.get("/static/styles.css")
 
     assert page.status_code == 200
-    assert "Welcome to Khata" in page.text or 'id="root"' in page.text
+    assert "Welcome to ArthNivo" in page.text or 'id="root"' in page.text
     assert "default-src 'self'" in page.headers["content-security-policy"]
     assert "unsafe-inline" not in page.headers["content-security-policy"]
     assert script.status_code == 200

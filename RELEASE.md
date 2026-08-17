@@ -42,8 +42,8 @@ Verify a published image before promotion:
 
 ```bash
 gh attestation verify \
-  oci://ghcr.io/chetan1804/finance-ai-assistant:1.0.0 \
-  --repo chetan1804/finance-ai-assistant
+  oci://ghcr.io/chetan1804/arthnivo:1.0.0 \
+  --repo chetan1804/arthnivo
 ```
 
 Deploy the immutable digest shown by the release job rather than relying on the

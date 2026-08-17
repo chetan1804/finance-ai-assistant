@@ -20,7 +20,7 @@ REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 
 def configure_application_logger(stream=None):
-    logger = logging.getLogger("finance_assistant")
+    logger = logging.getLogger("arthnivo")
     level_name = os.getenv("FINANCE_LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, None)
     if not isinstance(level, int):
@@ -46,7 +46,7 @@ def configure_application_logger(stream=None):
             ],
             timestamp=True,
             static_fields={
-                "service": "finance-assistant",
+                "service": "arthnivo",
                 "environment": os.getenv("FINANCE_ENVIRONMENT", "development"),
             },
         )

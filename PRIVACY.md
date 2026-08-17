@@ -1,6 +1,6 @@
 # Privacy controls
 
-Khata stores the minimum application data needed for a personal finance
+ArthNivo stores the minimum application data needed for a personal finance
 workspace: profile details, preferences, accounts, categories, transactions,
 budgets, goals, authentication records, and conversation checkpoints. Provider
 prompts may contain finance context needed to answer a user's question; the

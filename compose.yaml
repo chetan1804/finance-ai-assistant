@@ -1,5 +1,5 @@
 services:
-  finance-assistant:
+  arthnivo:
     build: .
     restart: unless-stopped
     env_file:

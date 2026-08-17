@@ -157,7 +157,7 @@ function App() {
 
   const [chatQuestion, setChatQuestion] = useState('')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { id: 'welcome', text: 'Hi — ask me about your income, spending, savings, or categories.', user: false },
+    { id: 'welcome', text: 'Hi — I’m ArthNivo. Ask me about your income, spending, savings, or categories.', user: false },
   ])
   const [chatBusy, setChatBusy] = useState(false)
   const [toast, setToast] = useState<{ message: string; error: boolean } | null>(null)
@@ -860,7 +860,7 @@ function App() {
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `khata-data-${today()}.json`
+      link.download = `arthnivo-data-${today()}.json`
       link.click()
       URL.revokeObjectURL(url)
       setPrivacyPassword('')
@@ -891,7 +891,7 @@ function App() {
       const response = await authorizedResponse('/api/v1/export/transactions', {
         method: 'POST', body: JSON.stringify({ password: privacyPassword }),
       })
-      downloadBlob(await response.blob(), `finance-transactions-${today()}.csv`)
+      downloadBlob(await response.blob(), `arthnivo-transactions-${today()}.csv`)
       setPrivacyPassword('')
       notify('Transaction CSV downloaded.')
     } catch (error) {
@@ -1025,7 +1025,7 @@ function App() {
   }
 
   if (checkingSession) {
-    return <div className="loading-screen"><div><div className="brand-mark">ख</div><p>Opening your private workspace…</p></div></div>
+    return <div className="loading-screen"><div><div className="brand-mark"><img src="/favicon.svg" alt="" /></div><p>Opening your private workspace…</p></div></div>
   }
 
   if (!connected) {
@@ -1035,9 +1035,9 @@ function App() {
         <div className="ambient ambient-two" />
         <section className="auth-view" aria-labelledby="auth-title">
           <div className="auth-card auth-card-onboarding">
-            <div className="brand-mark" aria-hidden="true">ख</div>
+            <div className="brand-mark" aria-hidden="true"><img src="/favicon.svg" alt="" /></div>
             <p className="eyebrow">Private finance workspace</p>
-            <h1 id="auth-title">Welcome to Khata</h1>
+            <h1 id="auth-title">Welcome to ArthNivo</h1>
             <p className="auth-copy">Your financial picture, thoughtfully organized and securely yours.</p>
             <div className="auth-tabs" role="tablist" aria-label="Authentication method">
               <button type="button" role="tab" aria-selected={authMode === 'login'} className={authMode === 'login' ? 'active' : ''} onClick={() => setAuthMode('login')}>Sign in</button>
@@ -1066,7 +1066,7 @@ function App() {
       <div className="ambient ambient-one" /><div className="ambient ambient-two" />
       <div className="app-shell">
         <aside className="sidebar">
-          <a className="brand" href="#overview" aria-label="Khata dashboard home"><span className="brand-mark small" aria-hidden="true">ख</span><span><strong>Khata</strong><small>Personal finance</small></span></a>
+          <a className="brand" href="#overview" aria-label="ArthNivo dashboard home"><span className="brand-mark small" aria-hidden="true"><img src="/favicon.svg" alt="" /></span><span><strong>ArthNivo</strong><small>Personal finance</small></span></a>
           <nav className="nav-list" aria-label="Dashboard navigation">
             <a className="nav-item active" href="#overview"><span aria-hidden="true">⌂</span> Overview</a>
             <a className="nav-item" href="#planning"><span aria-hidden="true">◎</span> Planning</a>
@@ -1219,7 +1219,7 @@ function App() {
             </div>
           </section>
 
-          <section id="assistant" className="section-block assistant-section" aria-labelledby="assistant-title"><div className="assistant-intro"><span className="assistant-spark" aria-hidden="true">✦</span><p className="eyebrow">AI finance assistant</p><h2 id="assistant-title">Ask your money a question</h2><p>Get grounded answers based only on your financial data.</p><div className="prompt-chips" aria-label="Suggested questions">{['How much did I spend?', 'How much did I pay toward my home loan?', 'How much have I invested?'].map((question) => <button type="button" key={question} onClick={() => setChatQuestion(question)}>{question}</button>)}</div></div><div className="chat-card"><div className="chat-messages" aria-live="polite">{chatMessages.map((message) => <div key={message.id} className={`message ${message.user ? 'user-message' : 'assistant-message'}`}>{!message.user && <span className="avatar">ख</span>}<p>{message.text}</p></div>)}</div><form className="chat-form" onSubmit={sendChat}><label className="sr-only" htmlFor="chat-question">Ask a financial question</label><textarea id="chat-question" rows={1} maxLength={2000} required placeholder="Ask about your finances…" value={chatQuestion} onChange={(event) => setChatQuestion(event.target.value)} /><button className="send-button" type="submit" aria-label="Send question" disabled={chatBusy}>↑</button></form></div></section>
+          <section id="assistant" className="section-block assistant-section" aria-labelledby="assistant-title"><div className="assistant-intro"><span className="assistant-spark" aria-hidden="true">✦</span><p className="eyebrow">ArthNivo AI assistant</p><h2 id="assistant-title">Ask your money a question</h2><p>Get grounded answers based only on your financial data.</p><div className="prompt-chips" aria-label="Suggested questions">{['How much did I spend?', 'How much did I pay toward my home loan?', 'How much have I invested?'].map((question) => <button type="button" key={question} onClick={() => setChatQuestion(question)}>{question}</button>)}</div></div><div className="chat-card"><div className="chat-messages" aria-live="polite">{chatMessages.map((message) => <div key={message.id} className={`message ${message.user ? 'user-message' : 'assistant-message'}`}>{!message.user && <span className="avatar"><img src="/favicon.svg" alt="" /></span>}<p>{message.text}</p></div>)}</div><form className="chat-form" onSubmit={sendChat}><label className="sr-only" htmlFor="chat-question">Ask a financial question</label><textarea id="chat-question" rows={1} maxLength={2000} required placeholder="Ask about your finances…" value={chatQuestion} onChange={(event) => setChatQuestion(event.target.value)} /><button className="send-button" type="submit" aria-label="Send question" disabled={chatBusy}>↑</button></form></div></section>
 
           <section id="preferences" className="section-block" aria-labelledby="preferences-title"><div className="section-heading"><div><p className="eyebrow">Personalization</p><h2 id="preferences-title">Preferences</h2></div></div><form className="panel preferences-form" onSubmit={savePreferences}><label>Language<input maxLength={50} required value={preferences.language} onChange={(event) => setPreferences({ ...preferences, language: event.target.value })} /></label><label>Currency<input maxLength={3} required value={preferences.currency} onChange={(event) => setPreferences({ ...preferences, currency: event.target.value })} /></label><label>Monthly income<input type="number" min="1" step="0.01" placeholder="Optional" value={preferences.monthly_income ?? ''} onChange={(event) => setPreferences({ ...preferences, monthly_income: event.target.value ? Number(event.target.value) : null })} /></label><label>Risk preference<select value={preferences.risk_preference || ''} onChange={(event) => setPreferences({ ...preferences, risk_preference: event.target.value || null })}><option value="">Not set</option><option value="conservative">Conservative</option><option value="moderate">Moderate</option><option value="aggressive">Aggressive</option></select></label><label className="toggle-label"><input type="checkbox" checked={preferences.notification_enabled} onChange={(event) => setPreferences({ ...preferences, notification_enabled: event.target.checked })} /><span className="toggle-control" /><span>Notifications enabled</span></label><button className="primary-button" type="submit" disabled={busy}>Save preferences</button></form></section>
 

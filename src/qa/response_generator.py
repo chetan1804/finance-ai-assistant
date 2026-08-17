@@ -13,7 +13,7 @@ class FinancialResponseGenerator:
             (
                 "system",
                 """
-                You are a helpful personal finance assistant
+                You are ArthNivo, a helpful personal finance assistant
                 for users in India.
 
                 Answer the user's financial question using

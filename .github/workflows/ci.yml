@@ -88,15 +88,15 @@ jobs:
           context: .
           push: false
           load: true
-          tags: finance-assistant:ci
+          tags: arthnivo:ci
           build-args: |
             FINANCE_RELEASE_VERSION=ci
             FINANCE_COMMIT_SHA=${{ github.sha }}
             FINANCE_BUILD_DATE=ci
       - name: Start release image
         run: >-
-          docker run --detach --name finance-assistant-ci
-          --publish 18000:8000 finance-assistant:ci
+          docker run --detach --name arthnivo-ci
+          --publish 18000:8000 arthnivo:ci
       - name: Smoke test release image
         run: |
           for attempt in {1..15}; do
@@ -106,7 +106,7 @@ jobs:
             fi
             sleep 1
           done
-          docker logs finance-assistant-ci
+          docker logs arthnivo-ci
           exit 1
       - name: Enforce API performance budget
         run: >-
@@ -120,4 +120,4 @@ jobs:
           --max-error-rate 0
       - name: Stop release image
         if: always()
-        run: docker rm --force finance-assistant-ci
+        run: docker rm --force arthnivo-ci

@@ -362,7 +362,7 @@ function appendMessage(text, user = false) {
   if (!user) {
     const avatar = document.createElement("span");
     avatar.className = "avatar";
-    avatar.textContent = "ख";
+    avatar.innerHTML = '<img src="/favicon.svg" alt="">';
     message.append(avatar);
   }
   const content = document.createElement("p");

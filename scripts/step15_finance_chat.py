@@ -5,7 +5,7 @@ from src.agents.finance_agent import chat
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Run the personalized finance assistant."
+        description="Run the personalized ArthNivo assistant."
     )
     parser.add_argument("--user-id", type=int, required=True)
     parser.add_argument("--thread-id", default="finance-chat")
@@ -16,7 +16,7 @@ def main():
 
     args = parse_args()
 
-    print("\nFinance AI Assistant - Step 15")
+    print("\nArthNivo AI Assistant")
     print("Type 'exit' to quit.\n")
 
     while True:
