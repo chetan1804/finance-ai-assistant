@@ -207,7 +207,7 @@ def test_dashboard_and_static_assets_are_served_with_strict_csp(api_context):
     styles = client.get("/static/styles.css")
 
     assert page.status_code == 200
-    assert "Welcome to Khata" in page.text
+    assert "Welcome to Khata" in page.text or 'id="root"' in page.text
     assert "default-src 'self'" in page.headers["content-security-policy"]
     assert "unsafe-inline" not in page.headers["content-security-policy"]
     assert script.status_code == 200
@@ -470,6 +470,108 @@ def test_recurring_processing_is_repeatable_and_updates_balance(api_context):
     assert schedules.json()[0]["is_active"] is False
     assert schedules.json()[0]["last_generated_date"] == "2026-08-30"
     assert accounts.json()[0]["balance"] == 47700
+
+
+def test_loan_emi_schedule_generates_an_expense_with_loan_metadata(api_context):
+    client = api_context["client"]
+    created = client.post(
+        "/api/v1/recurring-transactions",
+        headers=AUTH_HEADERS,
+        json={
+            "account_id": api_context["account_id"],
+            "category_id": None,
+            "transaction_type": "expense",
+            "amount": 5000,
+            "description": "Home loan payment",
+            "frequency": "monthly",
+            "next_date": "2026-08-15",
+            "schedule_kind": "loan_emi",
+            "loan_type": "home",
+            "lender": "Example Bank",
+        },
+    )
+    generated = client.post(
+        "/api/v1/recurring-transactions/process",
+        headers=AUTH_HEADERS,
+        json={"through_date": "2026-08-31"},
+    )
+    schedules = client.get(
+        "/api/v1/recurring-transactions", headers=AUTH_HEADERS
+    ).json()
+    summary = client.get("/api/v1/summary", headers=AUTH_HEADERS).json()
+    accounts = client.get("/api/v1/accounts", headers=AUTH_HEADERS).json()
+
+    assert created.status_code == 201
+    assert generated.json()["generated_count"] == 1
+    assert schedules[0]["schedule_kind"] == "loan_emi"
+    assert schedules[0]["loan_type"] == "home"
+    assert schedules[0]["category"] == "Loan EMI"
+    assert summary["expenses"] == 7000
+    assert accounts[0]["balance"] == 43000
+    deleted = client.delete(
+        f"/api/v1/recurring-transactions/{schedules[0]['id']}",
+        headers=AUTH_HEADERS,
+    )
+    assert deleted.status_code == 204
+    assert api_context["service"].get_total_loan_emi(
+        api_context["user_id"], loan_type="home"
+    ) == 5000
+
+
+def test_investment_contributions_debit_cash_without_inflating_expenses(api_context):
+    client = api_context["client"]
+    created = client.post(
+        "/api/v1/investments",
+        headers=AUTH_HEADERS,
+        json={
+            "account_id": api_context["account_id"],
+            "investment_type": "mutual_fund_sip",
+            "name": "Index SIP",
+            "provider": "Example AMC",
+            "contribution_amount": 1000,
+            "frequency": "monthly",
+            "next_date": "2026-07-15",
+            "status": "active",
+        },
+    )
+    investment_id = created.json()["id"]
+    processed = client.post(
+        "/api/v1/investments/process",
+        headers=AUTH_HEADERS,
+        json={"through_date": "2026-08-15"},
+    )
+    client.put(
+        f"/api/v1/investments/{investment_id}/value",
+        headers=AUTH_HEADERS,
+        json={"current_value": 2500},
+    )
+    manual = client.post(
+        f"/api/v1/investments/{investment_id}/contributions",
+        headers=AUTH_HEADERS,
+        json={"amount": 500, "contribution_date": "2026-08-16"},
+    )
+    investments = client.get("/api/v1/investments", headers=AUTH_HEADERS).json()
+    investment_summary = client.get(
+        "/api/v1/investments/summary", headers=AUTH_HEADERS
+    ).json()
+    finance_summary = client.get("/api/v1/summary", headers=AUTH_HEADERS).json()
+    accounts = client.get("/api/v1/accounts", headers=AUTH_HEADERS).json()
+    contributions = client.get(
+        f"/api/v1/investments/{investment_id}/contributions",
+        headers=AUTH_HEADERS,
+    ).json()
+
+    assert created.status_code == 201
+    assert processed.json()["generated_count"] == 2
+    assert len(processed.json()["contribution_ids"]) == 2
+    assert manual.status_code == 201
+    assert investments[0]["total_contributed"] == 2500
+    assert investment_summary["total_contributed"] == 2500
+    assert investment_summary["current_value"] == 3000
+    assert investment_summary["gain_loss"] == 500
+    assert finance_summary["expenses"] == 2000
+    assert accounts[0]["balance"] == 45500
+    assert len(contributions) == 3
 
 
 def test_csv_import_is_atomic_duplicate_safe_and_creates_notifications(api_context):

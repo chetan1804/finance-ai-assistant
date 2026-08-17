@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { api } from './api'
+import { api, publicApi } from './api'
 
 describe('api', () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -23,5 +23,17 @@ describe('api', () => {
 
     await expect(api('x'.repeat(32), '/api/v1/summary'))
       .rejects.toThrow('Your token is invalid or has expired.')
+  })
+
+  it('shows the public login error when credentials are invalid', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ detail: 'Invalid email or password.' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } },
+    )))
+
+    await expect(publicApi('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'user@example.com', password: 'wrong' }),
+    })).rejects.toThrow('Invalid email or password.')
   })
 })

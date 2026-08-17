@@ -123,13 +123,44 @@ export interface RecurringTransaction {
   notes: string | null
   account: string
   category: string | null
+  schedule_kind: 'standard' | 'loan_emi'
+  loan_type: 'home' | 'car' | 'personal' | 'education' | 'other' | null
+  lender: string | null
 }
 
 export interface Notification {
   id: number
-  notification_type: 'budget_warning' | 'budget_exceeded' | 'goal_completed' | 'recurring_generated' | 'import_completed'
+  notification_type: 'budget_warning' | 'budget_exceeded' | 'goal_completed' | 'recurring_generated' | 'import_completed' | 'emi_generated' | 'investment_generated' | 'investment_maturity'
   title: string
   message: string
   is_read: boolean
   created_at: string
+}
+
+export interface Investment {
+  id: number
+  account_id: number
+  investment_type: 'mutual_fund_sip' | 'lic' | 'rd' | 'fd' | 'other'
+  name: string
+  provider: string | null
+  contribution_amount: number
+  frequency: 'one_time' | 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
+  interval_count: number
+  next_date: string
+  maturity_date: string | null
+  total_contributed: number
+  current_value: number
+  status: 'active' | 'paused' | 'completed'
+  last_contribution_date: string | null
+  notes: string | null
+  account: string
+  gain_loss: number
+}
+
+export interface InvestmentSummary {
+  total_contributed: number
+  current_value: number
+  gain_loss: number
+  active_plans: number
+  next_contribution_date: string | null
 }

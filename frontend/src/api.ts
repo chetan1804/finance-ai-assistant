@@ -26,7 +26,7 @@ async function request<T>(
     ? null
     : await response.json().catch(() => null) as T | ApiErrorPayload | null
 
-  if (response.status === 401) {
+  if (response.status === 401 && token) {
     throw new ApiUnauthorizedError('Your token is invalid or has expired.')
   }
   if (!response.ok) {

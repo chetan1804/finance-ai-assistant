@@ -199,6 +199,9 @@ class RecurringTransactionWrite(StrictModel):
     merchant: str | None = Field(default=None, max_length=255)
     notes: str | None = Field(default=None, max_length=1000)
     is_active: bool = True
+    schedule_kind: Literal["standard", "loan_emi"] = "standard"
+    loan_type: Literal["home", "car", "personal", "education", "other"] | None = None
+    lender: str | None = Field(default=None, max_length=255)
 
 
 class RecurringTransactionResponse(RecurringTransactionWrite):
@@ -232,8 +235,67 @@ class NotificationResponse(StrictModel):
         "goal_completed",
         "recurring_generated",
         "import_completed",
+        "emi_generated",
+        "investment_generated",
+        "investment_maturity",
     ]
     title: str
     message: str
     is_read: bool
     created_at: datetime
+
+
+class InvestmentWrite(StrictModel):
+    account_id: int = Field(gt=0)
+    investment_type: Literal["mutual_fund_sip", "lic", "rd", "fd", "other"]
+    name: str = Field(min_length=1, max_length=100)
+    provider: str | None = Field(default=None, max_length=255)
+    contribution_amount: float = Field(gt=0)
+    frequency: Literal[
+        "one_time", "daily", "weekly", "monthly", "quarterly", "yearly"
+    ]
+    interval_count: int = Field(default=1, ge=1, le=365)
+    next_date: date
+    maturity_date: date | None = None
+    current_value: float = Field(default=0, ge=0)
+    status: Literal["active", "paused", "completed"] = "active"
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class InvestmentResponse(InvestmentWrite):
+    id: int
+    total_contributed: float
+    last_contribution_date: date | None
+    account: str
+    gain_loss: float
+
+
+class InvestmentContributionCreate(StrictModel):
+    amount: float = Field(gt=0)
+    contribution_date: date | None = None
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class InvestmentContributionResponse(StrictModel):
+    id: int
+    amount: float
+    contribution_date: date
+    scheduled_for: date | None
+    notes: str | None
+
+
+class InvestmentProcessResponse(StrictModel):
+    generated_count: int
+    contribution_ids: list[int]
+
+
+class InvestmentValueUpdate(StrictModel):
+    current_value: float = Field(ge=0)
+
+
+class InvestmentSummaryResponse(StrictModel):
+    total_contributed: float
+    current_value: float
+    gain_loss: float
+    active_plans: int
+    next_contribution_date: date | None

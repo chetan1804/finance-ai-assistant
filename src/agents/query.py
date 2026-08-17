@@ -16,4 +16,8 @@ def execute_finance_query(service, user_id: int, context: dict):
         return service.get_total_income(**common)
     if intent == "balance":
         return service.get_savings(**common)
+    if intent == "loan_emi":
+        return service.get_total_loan_emi(loan_type=category, **common)
+    if intent == "investment":
+        return service.get_investment_summary(user_id)["total_contributed"]
     return None

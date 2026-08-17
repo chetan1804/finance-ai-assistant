@@ -10,6 +10,8 @@ import type {
   ChatMessage,
   Preferences,
   Goal,
+  Investment,
+  InvestmentSummary,
   Notification,
   RecurringTransaction,
   SecuritySession,
@@ -114,6 +116,11 @@ function App() {
   const [goals, setGoals] = useState<Goal[]>([])
   const [recurring, setRecurring] = useState<RecurringTransaction[]>([])
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [investments, setInvestments] = useState<Investment[]>([])
+  const [investmentSummary, setInvestmentSummary] = useState<InvestmentSummary>({
+    total_contributed: 0, current_value: 0, gain_loss: 0,
+    active_plans: 0, next_contribution_date: null,
+  })
   const [preferences, setPreferences] = useState(defaultPreferences)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -135,6 +142,12 @@ function App() {
   const [recurringDraft, setRecurringDraft] = useState({
     account_id: '', category_id: '', transaction_type: 'expense', amount: '',
     description: '', frequency: 'monthly', interval_count: '1', next_date: today(), end_date: '',
+    schedule_kind: 'standard', loan_type: 'home', lender: '',
+  })
+  const [investmentDraft, setInvestmentDraft] = useState({
+    account_id: '', investment_type: 'mutual_fund_sip', name: '', provider: '',
+    contribution_amount: '', frequency: 'monthly', interval_count: '1',
+    next_date: today(), maturity_date: '', notes: '',
   })
 
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -163,7 +176,10 @@ function App() {
     await api(authToken, '/api/v1/recurring-transactions/process', {
       method: 'POST', body: JSON.stringify({}),
     })
-    const [nextSummary, nextTransactions, nextAccounts, nextCategories, nextPreferences, nextSessions, nextBudgets, nextGoals, nextRecurring, nextNotifications] = await Promise.all([
+    await api(authToken, '/api/v1/investments/process', {
+      method: 'POST', body: JSON.stringify({}),
+    })
+    const [nextSummary, nextTransactions, nextAccounts, nextCategories, nextPreferences, nextSessions, nextBudgets, nextGoals, nextRecurring, nextNotifications, nextInvestments, nextInvestmentSummary] = await Promise.all([
       api<Summary>(authToken, summaryPath(filters.start, filters.end)),
       api<Transaction[]>(authToken, '/api/v1/transactions?limit=50'),
       api<Account[]>(authToken, '/api/v1/accounts'),
@@ -174,6 +190,8 @@ function App() {
       api<Goal[]>(authToken, '/api/v1/goals'),
       api<RecurringTransaction[]>(authToken, '/api/v1/recurring-transactions'),
       api<Notification[]>(authToken, '/api/v1/notifications'),
+      api<Investment[]>(authToken, '/api/v1/investments'),
+      api<InvestmentSummary>(authToken, '/api/v1/investments/summary'),
     ])
     setSummary(nextSummary)
     setTransactions(nextTransactions)
@@ -185,6 +203,8 @@ function App() {
     setGoals(nextGoals)
     setRecurring(nextRecurring)
     setNotifications(nextNotifications)
+    setInvestments(nextInvestments)
+    setInvestmentSummary(nextInvestmentSummary)
     setLastUpdated(`Updated ${new Intl.DateTimeFormat('en-IN', {
       hour: 'numeric', minute: '2-digit',
     }).format(new Date())}`)
@@ -572,6 +592,9 @@ function App() {
           merchant: item.merchant,
           notes: item.notes,
           is_active: !item.is_active,
+          schedule_kind: item.schedule_kind,
+          loan_type: item.loan_type,
+          lender: item.lender,
         }),
       })
       setRecurring((current) => current.map((entry) => (
@@ -602,6 +625,133 @@ function App() {
       })
       await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
       notify(`${result.generated_count} scheduled transaction${result.generated_count === 1 ? '' : 's'} generated.`)
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveInvestment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      await authorizedApi<{ id: number }>('/api/v1/investments', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...investmentDraft,
+          account_id: Number(investmentDraft.account_id),
+          contribution_amount: Number(investmentDraft.contribution_amount),
+          interval_count: Number(investmentDraft.interval_count),
+          provider: investmentDraft.provider.trim() || null,
+          maturity_date: investmentDraft.maturity_date || null,
+          notes: investmentDraft.notes.trim() || null,
+          current_value: 0,
+          status: 'active',
+        }),
+      })
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
+      setInvestmentDraft({
+        ...investmentDraft, name: '', provider: '', contribution_amount: '', notes: '',
+      })
+      notify('Investment plan created.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function toggleInvestment(item: Investment) {
+    const nextStatus = item.status === 'active' ? 'paused' : 'active'
+    if (item.status === 'completed') {
+      notify('Completed investments cannot be resumed without a new schedule.', true)
+      return
+    }
+    try {
+      await authorizedApi<{ id: number }>(`/api/v1/investments/${item.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          account_id: item.account_id,
+          investment_type: item.investment_type,
+          name: item.name,
+          provider: item.provider,
+          contribution_amount: item.contribution_amount,
+          frequency: item.frequency,
+          interval_count: item.interval_count,
+          next_date: item.next_date,
+          maturity_date: item.maturity_date,
+          current_value: item.current_value,
+          status: nextStatus,
+          notes: item.notes,
+        }),
+      })
+      setInvestments((current) => current.map((entry) => (
+        entry.id === item.id ? { ...entry, status: nextStatus } : entry
+      )))
+      notify(nextStatus === 'paused' ? 'Investment paused.' : 'Investment resumed.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function addInvestmentContribution(item: Investment) {
+    const entered = globalThis.prompt(`Contribution amount for ${item.name}`, String(item.contribution_amount))
+    if (!entered) return
+    const amount = Number(entered)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      notify('Enter a positive contribution amount.', true)
+      return
+    }
+    try {
+      await authorizedApi<{ id: number }>(`/api/v1/investments/${item.id}/contributions`, {
+        method: 'POST', body: JSON.stringify({ amount, contribution_date: today() }),
+      })
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
+      notify('Investment contribution recorded.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function updateInvestmentValue(item: Investment) {
+    const entered = globalThis.prompt(`Current value for ${item.name}`, String(item.current_value))
+    if (entered === null) return
+    const currentValue = Number(entered)
+    if (!Number.isFinite(currentValue) || currentValue < 0) {
+      notify('Enter a non-negative current value.', true)
+      return
+    }
+    try {
+      await authorizedApi<{ id: number }>(`/api/v1/investments/${item.id}/value`, {
+        method: 'PUT', body: JSON.stringify({ current_value: currentValue }),
+      })
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
+      notify('Investment value updated.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function deleteInvestment(item: Investment) {
+    if (!globalThis.confirm(`Delete ${item.name} and its contribution history? Account balances will not be changed.`)) return
+    try {
+      await authorizedApi<null>(`/api/v1/investments/${item.id}`, { method: 'DELETE' })
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
+      notify('Investment tracking record deleted.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function processInvestments() {
+    setBusy(true)
+    try {
+      const result = await authorizedApi<{ generated_count: number }>('/api/v1/investments/process', {
+        method: 'POST', body: JSON.stringify({}),
+      })
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
+      notify(`${result.generated_count} investment contribution${result.generated_count === 1 ? '' : 's'} generated.`)
     } catch (error) {
       notify(messageFrom(error), true)
     } finally {
@@ -921,6 +1071,7 @@ function App() {
             <a className="nav-item active" href="#overview"><span aria-hidden="true">⌂</span> Overview</a>
             <a className="nav-item" href="#planning"><span aria-hidden="true">◎</span> Planning</a>
             <a className="nav-item" href="#recurring"><span aria-hidden="true">↻</span> Recurring</a>
+            <a className="nav-item" href="#investments"><span aria-hidden="true">◆</span> Investments</a>
             <a className="nav-item" href="#notifications"><span aria-hidden="true">♢</span> Notifications{unreadNotifications ? ` (${unreadNotifications})` : ''}</a>
             <a className="nav-item" href="#transactions"><span aria-hidden="true">↕</span> Transactions</a>
             <a className="nav-item" href="#data-transfer"><span aria-hidden="true">⇄</span> Import / export</a>
@@ -987,23 +1138,55 @@ function App() {
             <div className="panel recurring-panel">
               <form className="compact-form recurring-form" onSubmit={saveRecurring}>
                 <label>Account<select required value={recurringDraft.account_id} onChange={(event) => setRecurringDraft({ ...recurringDraft, account_id: event.target.value })}><option value="">Choose account</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
-                <label>Type<select value={recurringDraft.transaction_type} onChange={(event) => setRecurringDraft({ ...recurringDraft, transaction_type: event.target.value, category_id: '' })}><option value="expense">Expense</option><option value="income">Income</option></select></label>
-                <label>Category<select value={recurringDraft.category_id} onChange={(event) => setRecurringDraft({ ...recurringDraft, category_id: event.target.value })}><option value="">No category</option>{recurringCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+                <label>Schedule<select value={recurringDraft.schedule_kind} onChange={(event) => setRecurringDraft({ ...recurringDraft, schedule_kind: event.target.value, transaction_type: event.target.value === 'loan_emi' ? 'expense' : recurringDraft.transaction_type, frequency: event.target.value === 'loan_emi' ? 'monthly' : recurringDraft.frequency, category_id: '' })}><option value="standard">Standard income / expense</option><option value="loan_emi">Loan EMI</option></select></label>
+                {recurringDraft.schedule_kind === 'loan_emi' ? <>
+                  <label>Loan type<select value={recurringDraft.loan_type} onChange={(event) => setRecurringDraft({ ...recurringDraft, loan_type: event.target.value })}><option value="home">Home loan</option><option value="car">Car loan</option><option value="personal">Personal loan</option><option value="education">Education loan</option><option value="other">Other loan</option></select></label>
+                  <label>Lender<input maxLength={255} placeholder="Bank or lender" value={recurringDraft.lender} onChange={(event) => setRecurringDraft({ ...recurringDraft, lender: event.target.value })} /></label>
+                </> : <>
+                  <label>Type<select value={recurringDraft.transaction_type} onChange={(event) => setRecurringDraft({ ...recurringDraft, transaction_type: event.target.value, category_id: '' })}><option value="expense">Expense</option><option value="income">Income</option></select></label>
+                  <label>Category<select value={recurringDraft.category_id} onChange={(event) => setRecurringDraft({ ...recurringDraft, category_id: event.target.value })}><option value="">No category</option>{recurringCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+                </>}
                 <label>Amount<input type="number" min="0.01" step="0.01" required value={recurringDraft.amount} onChange={(event) => setRecurringDraft({ ...recurringDraft, amount: event.target.value })} /></label>
-                <label>Description<input maxLength={500} value={recurringDraft.description} onChange={(event) => setRecurringDraft({ ...recurringDraft, description: event.target.value })} /></label>
-                <label>Frequency<select value={recurringDraft.frequency} onChange={(event) => setRecurringDraft({ ...recurringDraft, frequency: event.target.value })}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label>
+                <label>Description<input maxLength={500} placeholder={recurringDraft.schedule_kind === 'loan_emi' ? 'Generated from loan type if blank' : ''} value={recurringDraft.description} onChange={(event) => setRecurringDraft({ ...recurringDraft, description: event.target.value })} /></label>
+                {recurringDraft.schedule_kind === 'standard' && <label>Frequency<select value={recurringDraft.frequency} onChange={(event) => setRecurringDraft({ ...recurringDraft, frequency: event.target.value })}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label>}
                 <label>Every<input type="number" min="1" max="365" required value={recurringDraft.interval_count} onChange={(event) => setRecurringDraft({ ...recurringDraft, interval_count: event.target.value })} /></label>
                 <label>Next date<input type="date" required value={recurringDraft.next_date} onChange={(event) => setRecurringDraft({ ...recurringDraft, next_date: event.target.value })} /></label>
                 <label>End date<input type="date" value={recurringDraft.end_date} onChange={(event) => setRecurringDraft({ ...recurringDraft, end_date: event.target.value })} /></label>
                 <button className="primary-button" type="submit" disabled={busy}>Create schedule</button>
               </form>
-              <div className="plan-list recurring-list">{recurring.length ? recurring.map((item) => <div className="plan-row" key={item.id}><div><strong>{item.description || `${item.transaction_type} schedule`}</strong><small>{formatMoney(item.amount, currency)} · every {item.interval_count > 1 ? `${item.interval_count} ` : ''}{item.frequency} · next {formatDate(item.next_date)}</small><span className={`status-label ${item.is_active ? 'active' : ''}`}>{item.is_active ? 'Active' : recurringHasEnded(item) ? 'Ended' : 'Paused'}</span></div><div className="row-actions">{!recurringHasEnded(item) && <button className="row-action" type="button" title={item.is_active ? 'Pause schedule' : 'Resume schedule'} aria-label={`${item.is_active ? 'Pause' : 'Resume'} ${item.description || 'schedule'}`} onClick={() => void toggleRecurring(item)}>{item.is_active ? 'Ⅱ' : '▶'}</button>}<button className="row-action delete-action" type="button" aria-label={`Delete ${item.description || 'schedule'}`} onClick={() => void deleteRecurring(item)}>🗑</button></div></div>) : <p className="empty-state">No recurring transactions yet.</p>}</div>
+              <div className="plan-list recurring-list">{recurring.length ? recurring.map((item) => <div className="plan-row" key={item.id}><div><strong>{item.description || `${item.transaction_type} schedule`}</strong><small>{item.schedule_kind === 'loan_emi' ? `${item.loan_type?.replace('_', ' ')} loan EMI${item.lender ? ` · ${item.lender}` : ''} · ` : ''}{formatMoney(item.amount, currency)} · every {item.interval_count > 1 ? `${item.interval_count} ` : ''}{item.frequency} · next {formatDate(item.next_date)}</small><span className={`status-label ${item.is_active ? 'active' : ''}`}>{item.is_active ? 'Active' : recurringHasEnded(item) ? 'Ended' : 'Paused'}</span></div><div className="row-actions">{!recurringHasEnded(item) && <button className="row-action" type="button" title={item.is_active ? 'Pause schedule' : 'Resume schedule'} aria-label={`${item.is_active ? 'Pause' : 'Resume'} ${item.description || 'schedule'}`} onClick={() => void toggleRecurring(item)}>{item.is_active ? 'Ⅱ' : '▶'}</button>}<button className="row-action delete-action" type="button" aria-label={`Delete ${item.description || 'schedule'}`} onClick={() => void deleteRecurring(item)}>🗑</button></div></div>) : <p className="empty-state">No recurring transactions yet.</p>}</div>
+            </div>
+          </section>
+
+          <section id="investments" className="section-block" aria-labelledby="investments-title">
+            <div className="section-heading"><div><p className="eyebrow">Build wealth</p><h2 id="investments-title">Investments</h2></div><button className="secondary-button" type="button" disabled={busy} onClick={() => void processInvestments()}>Generate due contributions</button></div>
+            <div className="investment-metrics">
+              <article className="panel mini-metric"><span>Total invested</span><strong>{formatMoney(investmentSummary.total_contributed, currency)}</strong></article>
+              <article className="panel mini-metric"><span>Current value</span><strong>{formatMoney(investmentSummary.current_value, currency)}</strong></article>
+              <article className={`panel mini-metric ${investmentSummary.gain_loss < 0 ? 'negative' : ''}`}><span>Gain / loss</span><strong>{formatMoney(investmentSummary.gain_loss, currency)}</strong></article>
+              <article className="panel mini-metric"><span>Active plans</span><strong>{investmentSummary.active_plans}</strong><small>Next: {formatDate(investmentSummary.next_contribution_date)}</small></article>
+            </div>
+            <div className="panel investment-panel">
+              <form className="compact-form investment-form" onSubmit={saveInvestment}>
+                <label>Source account<select required value={investmentDraft.account_id} onChange={(event) => setInvestmentDraft({ ...investmentDraft, account_id: event.target.value })}><option value="">Choose account</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+                <label>Investment type<select value={investmentDraft.investment_type} onChange={(event) => setInvestmentDraft({ ...investmentDraft, investment_type: event.target.value })}><option value="mutual_fund_sip">Mutual fund SIP</option><option value="lic">LIC</option><option value="rd">Recurring deposit (RD)</option><option value="fd">Fixed deposit (FD)</option><option value="other">Other investment</option></select></label>
+                <label>Name<input required maxLength={100} placeholder="e.g. Index fund SIP" value={investmentDraft.name} onChange={(event) => setInvestmentDraft({ ...investmentDraft, name: event.target.value })} /></label>
+                <label>Provider<input maxLength={255} placeholder="Fund house, bank, insurer" value={investmentDraft.provider} onChange={(event) => setInvestmentDraft({ ...investmentDraft, provider: event.target.value })} /></label>
+                <label>Contribution<input type="number" min="0.01" step="0.01" required value={investmentDraft.contribution_amount} onChange={(event) => setInvestmentDraft({ ...investmentDraft, contribution_amount: event.target.value })} /></label>
+                <label>Frequency<select value={investmentDraft.frequency} onChange={(event) => setInvestmentDraft({ ...investmentDraft, frequency: event.target.value })}><option value="one_time">One time</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select></label>
+                <label>Every<input type="number" min="1" max="365" required value={investmentDraft.interval_count} onChange={(event) => setInvestmentDraft({ ...investmentDraft, interval_count: event.target.value })} /></label>
+                <label>Next contribution<input type="date" required value={investmentDraft.next_date} onChange={(event) => setInvestmentDraft({ ...investmentDraft, next_date: event.target.value })} /></label>
+                <label>Maturity date<input type="date" value={investmentDraft.maturity_date} onChange={(event) => setInvestmentDraft({ ...investmentDraft, maturity_date: event.target.value })} /></label>
+                <label>Notes<input maxLength={1000} value={investmentDraft.notes} onChange={(event) => setInvestmentDraft({ ...investmentDraft, notes: event.target.value })} /></label>
+                <button className="primary-button" type="submit" disabled={busy}>Create investment</button>
+              </form>
+              <div className="investment-list">{investments.length ? investments.map((item) => <article className="investment-card" key={item.id}><div className="investment-card-heading"><div><span className="investment-type">{item.investment_type.replaceAll('_', ' ')}</span><h3>{item.name}</h3><small>{item.provider || item.account}</small></div><span className={`status-label ${item.status === 'active' ? 'active' : ''}`}>{item.status}</span></div><div className="investment-values"><span>Invested<strong>{formatMoney(item.total_contributed, currency)}</strong></span><span>Current<strong>{formatMoney(item.current_value, currency)}</strong></span><span>Gain / loss<strong className={item.gain_loss < 0 ? 'negative-value' : ''}>{formatMoney(item.gain_loss, currency)}</strong></span></div><p>Next {formatDate(item.next_date)} · {formatMoney(item.contribution_amount, currency)} {item.frequency.replace('_', ' ')}</p><div className="investment-actions"><button className="secondary-button" type="button" onClick={() => void addInvestmentContribution(item)}>＋ Contribution</button><button className="secondary-button" type="button" onClick={() => void updateInvestmentValue(item)}>Update value</button>{item.status !== 'completed' && <button className="row-action" type="button" title={item.status === 'active' ? 'Pause investment' : 'Resume investment'} aria-label={`${item.status === 'active' ? 'Pause' : 'Resume'} ${item.name}`} onClick={() => void toggleInvestment(item)}>{item.status === 'active' ? 'Ⅱ' : '▶'}</button>}<button className="row-action delete-action" type="button" aria-label={`Delete ${item.name}`} onClick={() => void deleteInvestment(item)}>🗑</button></div></article>) : <p className="empty-state">No investments yet. Add a SIP, LIC, RD, FD, or another investment above.</p>}</div>
             </div>
           </section>
 
           <section id="notifications" className="section-block" aria-labelledby="notifications-title">
             <div className="section-heading"><div><p className="eyebrow">Stay informed</p><h2 id="notifications-title">Notifications</h2></div>{unreadNotifications > 0 && <button className="secondary-button" type="button" onClick={() => void markAllNotificationsRead()}>Mark all read</button>}</div>
-            <div className="notification-list">{notifications.length ? notifications.map((item) => <article className={`notification-card${item.is_read ? '' : ' unread'}`} key={item.id} onClick={() => void markNotificationRead(item)}><span className="notification-icon" aria-hidden="true">{item.notification_type.startsWith('budget') ? '◔' : item.notification_type === 'goal_completed' ? '✓' : item.notification_type === 'import_completed' ? '⇣' : '↻'}</span><div><strong>{item.title}</strong><p>{item.message}</p><small>{formatDateTime(item.created_at)}</small></div><button className="row-action delete-action" type="button" aria-label={`Delete ${item.title} notification`} onClick={(event) => { event.stopPropagation(); void deleteNotification(item) }}>×</button></article>) : <div className="panel empty-state">No notifications yet. Budget, goal, recurring, and import updates will appear here.</div>}</div>
+            <div className="notification-list">{notifications.length ? notifications.map((item) => <article className={`notification-card${item.is_read ? '' : ' unread'}`} key={item.id} onClick={() => void markNotificationRead(item)}><span className="notification-icon" aria-hidden="true">{item.notification_type.startsWith('budget') ? '◔' : item.notification_type === 'goal_completed' ? '✓' : item.notification_type === 'import_completed' ? '⇣' : item.notification_type === 'emi_generated' ? '⌂' : item.notification_type.startsWith('investment') ? '◆' : '↻'}</span><div><strong>{item.title}</strong><p>{item.message}</p><small>{formatDateTime(item.created_at)}</small></div><button className="row-action delete-action" type="button" aria-label={`Delete ${item.title} notification`} onClick={(event) => { event.stopPropagation(); void deleteNotification(item) }}>×</button></article>) : <div className="panel empty-state">No notifications yet. Budget, goal, EMI, investment, recurring, and import updates will appear here.</div>}</div>
           </section>
 
           <section id="transactions" className="section-block" aria-labelledby="transactions-title">
@@ -1036,7 +1219,7 @@ function App() {
             </div>
           </section>
 
-          <section id="assistant" className="section-block assistant-section" aria-labelledby="assistant-title"><div className="assistant-intro"><span className="assistant-spark" aria-hidden="true">✦</span><p className="eyebrow">AI finance assistant</p><h2 id="assistant-title">Ask your money a question</h2><p>Get grounded answers based only on your financial data.</p><div className="prompt-chips" aria-label="Suggested questions">{['How much did I spend?', 'What are my total savings?', 'How much did I spend on food?'].map((question) => <button type="button" key={question} onClick={() => setChatQuestion(question)}>{question}</button>)}</div></div><div className="chat-card"><div className="chat-messages" aria-live="polite">{chatMessages.map((message) => <div key={message.id} className={`message ${message.user ? 'user-message' : 'assistant-message'}`}>{!message.user && <span className="avatar">ख</span>}<p>{message.text}</p></div>)}</div><form className="chat-form" onSubmit={sendChat}><label className="sr-only" htmlFor="chat-question">Ask a financial question</label><textarea id="chat-question" rows={1} maxLength={2000} required placeholder="Ask about your finances…" value={chatQuestion} onChange={(event) => setChatQuestion(event.target.value)} /><button className="send-button" type="submit" aria-label="Send question" disabled={chatBusy}>↑</button></form></div></section>
+          <section id="assistant" className="section-block assistant-section" aria-labelledby="assistant-title"><div className="assistant-intro"><span className="assistant-spark" aria-hidden="true">✦</span><p className="eyebrow">AI finance assistant</p><h2 id="assistant-title">Ask your money a question</h2><p>Get grounded answers based only on your financial data.</p><div className="prompt-chips" aria-label="Suggested questions">{['How much did I spend?', 'How much did I pay toward my home loan?', 'How much have I invested?'].map((question) => <button type="button" key={question} onClick={() => setChatQuestion(question)}>{question}</button>)}</div></div><div className="chat-card"><div className="chat-messages" aria-live="polite">{chatMessages.map((message) => <div key={message.id} className={`message ${message.user ? 'user-message' : 'assistant-message'}`}>{!message.user && <span className="avatar">ख</span>}<p>{message.text}</p></div>)}</div><form className="chat-form" onSubmit={sendChat}><label className="sr-only" htmlFor="chat-question">Ask a financial question</label><textarea id="chat-question" rows={1} maxLength={2000} required placeholder="Ask about your finances…" value={chatQuestion} onChange={(event) => setChatQuestion(event.target.value)} /><button className="send-button" type="submit" aria-label="Send question" disabled={chatBusy}>↑</button></form></div></section>
 
           <section id="preferences" className="section-block" aria-labelledby="preferences-title"><div className="section-heading"><div><p className="eyebrow">Personalization</p><h2 id="preferences-title">Preferences</h2></div></div><form className="panel preferences-form" onSubmit={savePreferences}><label>Language<input maxLength={50} required value={preferences.language} onChange={(event) => setPreferences({ ...preferences, language: event.target.value })} /></label><label>Currency<input maxLength={3} required value={preferences.currency} onChange={(event) => setPreferences({ ...preferences, currency: event.target.value })} /></label><label>Monthly income<input type="number" min="1" step="0.01" placeholder="Optional" value={preferences.monthly_income ?? ''} onChange={(event) => setPreferences({ ...preferences, monthly_income: event.target.value ? Number(event.target.value) : null })} /></label><label>Risk preference<select value={preferences.risk_preference || ''} onChange={(event) => setPreferences({ ...preferences, risk_preference: event.target.value || null })}><option value="">Not set</option><option value="conservative">Conservative</option><option value="moderate">Moderate</option><option value="aggressive">Aggressive</option></select></label><label className="toggle-label"><input type="checkbox" checked={preferences.notification_enabled} onChange={(event) => setPreferences({ ...preferences, notification_enabled: event.target.checked })} /><span className="toggle-control" /><span>Notifications enabled</span></label><button className="primary-button" type="submit" disabled={busy}>Save preferences</button></form></section>
 

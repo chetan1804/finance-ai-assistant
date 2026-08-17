@@ -176,6 +176,12 @@ Available endpoints:
 - `GET|POST /api/v1/recurring-transactions`
 - `PUT|DELETE /api/v1/recurring-transactions/{recurring_id}`
 - `POST /api/v1/recurring-transactions/process`
+- `GET|POST /api/v1/investments`
+- `PUT|DELETE /api/v1/investments/{investment_id}`
+- `GET|POST /api/v1/investments/{investment_id}/contributions`
+- `PUT /api/v1/investments/{investment_id}/value`
+- `GET /api/v1/investments/summary`
+- `POST /api/v1/investments/process`
 - `GET /api/v1/notifications`
 - `PATCH /api/v1/notifications/{notification_id}/read`
 - `POST /api/v1/notifications/read-all`
@@ -195,15 +201,23 @@ Available endpoints:
 - Category budgets with date-scoped actual spending and progress
 - Savings goals with target, saved amount, priority, status, and progress
 - Daily, weekly, monthly, and yearly recurring income or expenses
+- Home, car, personal, education, and other loan EMI schedules that
+  automatically create monthly expenses in the `Loan EMI` category
 - Idempotent due-transaction generation with pause, resume, and end dates
+- SIP, LIC, RD, FD, and other investment plans with scheduled contributions,
+  source-account debits, current valuation, and gain/loss tracking
+- Investments remain separate from expenses so spending and wealth-building
+  totals are not mixed
 - Atomic, duplicate-safe transaction CSV import with a downloadable template
 - Password-confirmed complete JSON and spreadsheet-safe CSV exports
-- Persistent budget, goal, recurring, and import notifications
+- Persistent budget, goal, recurring, EMI, investment, and import notifications
 - Account balance cards
 - User preference editing
 - Password rotation and active-session management
 - Personal-data export and permanent account deletion
 - Context-aware finance assistant chat
+- Assistant queries for total EMIs (including a selected loan type) and total
+  investment contributions
 
 See [IMPORT_EXPORT.md](IMPORT_EXPORT.md) for the CSV format, validation limits,
 API example, export protections, and notification behavior.

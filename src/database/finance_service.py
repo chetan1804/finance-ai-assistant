@@ -20,6 +20,13 @@ VALID_BUDGET_PERIODS = {"weekly", "monthly", "quarterly", "yearly", "custom"}
 VALID_GOAL_PRIORITIES = {"low", "medium", "high"}
 VALID_GOAL_STATUSES = {"active", "completed", "paused"}
 VALID_RECURRING_FREQUENCIES = {"daily", "weekly", "monthly", "yearly"}
+VALID_SCHEDULE_KINDS = {"standard", "loan_emi"}
+VALID_LOAN_TYPES = {"home", "car", "personal", "education", "other"}
+VALID_INVESTMENT_TYPES = {"mutual_fund_sip", "lic", "rd", "fd", "other"}
+VALID_INVESTMENT_FREQUENCIES = {
+    "one_time", "daily", "weekly", "monthly", "quarterly", "yearly"
+}
+VALID_INVESTMENT_STATUSES = {"active", "paused", "completed"}
 
 
 def _advance_date(value, frequency, interval_count):
@@ -29,7 +36,12 @@ def _advance_date(value, frequency, interval_count):
     if frequency == "weekly":
         return (current + timedelta(weeks=interval_count)).isoformat()
 
-    months = interval_count if frequency == "monthly" else interval_count * 12
+    if frequency == "monthly":
+        months = interval_count
+    elif frequency == "quarterly":
+        months = interval_count * 3
+    else:
+        months = interval_count * 12
     month_index = current.month - 1 + months
     year = current.year + month_index // 12
     month = month_index % 12 + 1
@@ -1462,21 +1474,26 @@ class FinanceService:
         finally:
             connection.close()
 
-    def create_recurring_transaction(self, user_id, account_id, category_id, transaction_type, amount, description, frequency, next_date, interval_count=1, end_date=None, merchant=None, notes=None):
+    def create_recurring_transaction(self, user_id, account_id, category_id, transaction_type, amount, description, frequency, next_date, interval_count=1, end_date=None, merchant=None, notes=None, schedule_kind="standard", loan_type=None, lender=None):
         values = self._validate_recurring(
             user_id, account_id, category_id, transaction_type, amount, description,
             frequency, next_date, interval_count, end_date, merchant, notes,
+            schedule_kind, loan_type, lender,
         )
         connection = self._connection()
         try:
+            values = list(values)
+            if values[12] == "loan_emi":
+                values[2] = self._ensure_loan_category(connection, values[0])
+            values = tuple(values)
             self._validate_recurring_ownership(connection, *values[:4])
             cursor = connection.execute(
                 """
                 INSERT INTO recurring_transactions
                     (user_id, account_id, category_id, transaction_type, amount,
                      description, frequency, next_date, interval_count, end_date,
-                     merchant, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     merchant, notes, schedule_kind, loan_type, lender)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 values,
             )
@@ -1488,7 +1505,7 @@ class FinanceService:
         finally:
             connection.close()
 
-    def _validate_recurring(self, user_id, account_id, category_id, transaction_type, amount, description, frequency, next_date, interval_count, end_date, merchant, notes):
+    def _validate_recurring(self, user_id, account_id, category_id, transaction_type, amount, description, frequency, next_date, interval_count, end_date, merchant, notes, schedule_kind="standard", loan_type=None, lender=None):
         user_id = validate_positive_id(user_id, "user_id")
         account_id = validate_positive_id(account_id, "account_id")
         if category_id is not None:
@@ -1508,7 +1525,46 @@ class FinanceService:
             raise ValueError("next_date is required.")
         merchant = validate_text(merchant, "merchant", max_length=255, required=False)
         notes = validate_text(notes, "notes", max_length=1000, required=False, allow_newlines=True)
-        return (user_id, account_id, category_id, transaction_type, amount, description, frequency, next_date, interval_count, end_date, merchant, notes)
+        schedule_kind = validate_text(
+            schedule_kind, "schedule_kind", max_length=20
+        ).casefold()
+        if schedule_kind not in VALID_SCHEDULE_KINDS:
+            raise ValueError("schedule_kind must be standard or loan_emi.")
+        if loan_type is not None:
+            loan_type = validate_text(loan_type, "loan_type", max_length=20).casefold()
+        lender = validate_text(lender, "lender", max_length=255, required=False)
+        if schedule_kind == "loan_emi":
+            if loan_type not in VALID_LOAN_TYPES:
+                raise ValueError("loan_type must be home, car, personal, education, or other.")
+            if transaction_type != "expense" or frequency != "monthly":
+                raise ValueError("Loan EMI schedules must be monthly expenses.")
+            if not description:
+                description = f"{loan_type.title()} loan EMI"
+        else:
+            loan_type = None
+            lender = None
+        return (user_id, account_id, category_id, transaction_type, amount, description, frequency, next_date, interval_count, end_date, merchant, notes, schedule_kind, loan_type, lender)
+
+    @staticmethod
+    def _ensure_loan_category(connection, user_id):
+        existing = connection.execute(
+            """
+            SELECT id FROM categories
+            WHERE LOWER(name) = 'loan emi' AND category_type = 'expense'
+            AND (user_id = ? OR user_id IS NULL)
+            ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END, id LIMIT 1
+            """,
+            (user_id, user_id),
+        ).fetchone()
+        if existing:
+            return existing[0]
+        return connection.execute(
+            """
+            INSERT INTO categories (user_id, name, category_type)
+            VALUES (?, 'Loan EMI', 'expense')
+            """,
+            (user_id,),
+        ).lastrowid
 
     @staticmethod
     def _validate_recurring_ownership(connection, user_id, account_id, category_id, transaction_type):
@@ -1535,7 +1591,8 @@ class FinanceService:
                 SELECT r.id, r.account_id, r.category_id, r.transaction_type, r.amount,
                        r.description, r.frequency, r.interval_count, r.next_date,
                        r.end_date, r.is_active, r.last_generated_date, r.merchant,
-                       r.notes, a.name, c.name
+                       r.notes, a.name, c.name, r.schedule_kind, r.loan_type,
+                       r.lender
                 FROM recurring_transactions r
                 JOIN accounts a ON a.id = r.account_id
                 LEFT JOIN categories c ON c.id = r.category_id
@@ -1546,21 +1603,27 @@ class FinanceService:
         finally:
             connection.close()
 
-    def update_recurring_transaction(self, user_id, recurring_id, account_id, category_id, transaction_type, amount, description, frequency, next_date, interval_count=1, end_date=None, merchant=None, notes=None, is_active=True):
+    def update_recurring_transaction(self, user_id, recurring_id, account_id, category_id, transaction_type, amount, description, frequency, next_date, interval_count=1, end_date=None, merchant=None, notes=None, is_active=True, schedule_kind="standard", loan_type=None, lender=None):
         recurring_id = validate_positive_id(recurring_id, "recurring_id")
         values = self._validate_recurring(
             user_id, account_id, category_id, transaction_type, amount, description,
             frequency, next_date, interval_count, end_date, merchant, notes,
+            schedule_kind, loan_type, lender,
         )
         connection = self._connection()
         try:
+            values = list(values)
+            if values[12] == "loan_emi":
+                values[2] = self._ensure_loan_category(connection, values[0])
+            values = tuple(values)
             self._validate_recurring_ownership(connection, *values[:4])
             cursor = connection.execute(
                 """
                 UPDATE recurring_transactions SET account_id = ?, category_id = ?,
                     transaction_type = ?, amount = ?, description = ?, frequency = ?,
                     next_date = ?, interval_count = ?, end_date = ?, merchant = ?, notes = ?,
-                    is_active = ?, updated_at = CURRENT_TIMESTAMP
+                    schedule_kind = ?, loan_type = ?, lender = ?, is_active = ?,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = ? AND user_id = ?
                 """,
                 (*values[1:], int(bool(is_active)), recurring_id, values[0]),
@@ -1603,6 +1666,7 @@ class FinanceService:
         )
         connection = self._connection()
         generated = []
+        emi_generated = 0
         try:
             if not hasattr(connection, "pool"):
                 connection.execute("BEGIN IMMEDIATE")
@@ -1611,7 +1675,7 @@ class FinanceService:
                 """
                 SELECT id, account_id, category_id, transaction_type, amount,
                        description, frequency, interval_count, next_date, end_date,
-                       merchant, notes
+                       merchant, notes, schedule_kind, loan_type
                 FROM recurring_transactions
                 WHERE user_id = ? AND is_active = 1 AND next_date <= ?
                 ORDER BY next_date, id
@@ -1621,7 +1685,7 @@ class FinanceService:
             for row in rows:
                 (recurring_id, account_id, category_id, transaction_type, amount,
                  description, frequency, interval_count, next_date, end_date,
-                 merchant, notes) = row
+                 merchant, notes, schedule_kind, loan_type) = row
                 occurrence = str(next_date)
                 end = str(end_date) if end_date else None
                 processed = 0
@@ -1641,11 +1705,12 @@ class FinanceService:
                             INSERT INTO transactions
                                 (user_id, account_id, category_id, transaction_type, amount,
                                  description, transaction_date, merchant, notes,
-                                 recurring_transaction_id, scheduled_for)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 recurring_transaction_id, scheduled_for, loan_type)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (user_id, account_id, category_id, transaction_type, amount,
-                             description, occurrence, merchant, notes, recurring_id, occurrence),
+                             description, occurrence, merchant, notes, recurring_id,
+                             occurrence, loan_type),
                         )
                         delta = amount if transaction_type == "income" else -amount
                         connection.execute(
@@ -1653,6 +1718,8 @@ class FinanceService:
                             (delta, account_id, user_id),
                         )
                         generated.append(cursor.lastrowid)
+                        if schedule_kind == "loan_emi":
+                            emi_generated += 1
                         if transaction_type == "expense" and category_id is not None:
                             self._check_budget_notifications(
                                 connection, user_id, category_id, occurrence
@@ -1673,8 +1740,9 @@ class FinanceService:
                 )
             if generated:
                 self._add_notification(
-                    connection, user_id, "recurring_generated",
-                    "Scheduled transactions generated",
+                    connection, user_id,
+                    "emi_generated" if emi_generated == len(generated) else "recurring_generated",
+                    "Loan EMI generated" if emi_generated == len(generated) else "Scheduled transactions generated",
                     f"{len(generated)} due transaction(s) were added to your accounts.",
                 )
             connection.commit()
@@ -1899,5 +1967,417 @@ class FinanceService:
         except Exception:
             connection.rollback()
             raise
+        finally:
+            connection.close()
+
+    def _validate_investment(
+        self, user_id, account_id, investment_type, name, provider,
+        contribution_amount, frequency, interval_count, next_date,
+        maturity_date, current_value, status, notes,
+    ):
+        user_id = validate_positive_id(user_id, "user_id")
+        account_id = validate_positive_id(account_id, "account_id")
+        investment_type = validate_text(
+            investment_type, "investment_type", max_length=30
+        ).casefold()
+        if investment_type not in VALID_INVESTMENT_TYPES:
+            raise ValueError("Unsupported investment_type.")
+        name = validate_text(name, "name", max_length=100)
+        provider = validate_text(provider, "provider", max_length=255, required=False)
+        contribution_amount = validate_money(
+            contribution_amount, "contribution_amount"
+        )
+        frequency = validate_text(frequency, "frequency", max_length=20).casefold()
+        if frequency not in VALID_INVESTMENT_FREQUENCIES:
+            raise ValueError("Unsupported investment frequency.")
+        if (
+            isinstance(interval_count, bool)
+            or not isinstance(interval_count, int)
+            or not 1 <= interval_count <= 365
+        ):
+            raise ValueError("interval_count must be an integer between 1 and 365.")
+        next_date, maturity_date = validate_date_range(next_date, maturity_date)
+        if not next_date:
+            raise ValueError("next_date is required.")
+        current_value = validate_finite_number(current_value, "current_value")
+        if current_value < 0:
+            raise ValueError("current_value must not be negative.")
+        status = validate_text(status, "status", max_length=20).casefold()
+        if status not in VALID_INVESTMENT_STATUSES:
+            raise ValueError("status must be active, paused, or completed.")
+        notes = validate_text(
+            notes, "notes", max_length=1000, required=False, allow_newlines=True
+        )
+        return (
+            user_id, account_id, investment_type, name, provider,
+            contribution_amount, frequency, interval_count, next_date,
+            maturity_date, current_value, status, notes,
+        )
+
+    @staticmethod
+    def _validate_investment_account(connection, user_id, account_id):
+        if connection.execute(
+            "SELECT 1 FROM accounts WHERE id = ? AND user_id = ? AND is_active = 1",
+            (account_id, user_id),
+        ).fetchone() is None:
+            raise ValueError("The account does not belong to the selected user.")
+
+    def create_investment(
+        self, user_id, account_id, investment_type, name, provider,
+        contribution_amount, frequency, next_date, interval_count=1,
+        maturity_date=None, current_value=0, status="active", notes=None,
+    ):
+        values = self._validate_investment(
+            user_id, account_id, investment_type, name, provider,
+            contribution_amount, frequency, interval_count, next_date,
+            maturity_date, current_value, status, notes,
+        )
+        connection = self._connection()
+        try:
+            self._validate_investment_account(connection, values[0], values[1])
+            cursor = connection.execute(
+                """
+                INSERT INTO investment_plans
+                    (user_id, account_id, investment_type, name, provider,
+                     contribution_amount, frequency, interval_count, next_date,
+                     maturity_date, current_value, status, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+            connection.commit()
+            return cursor.lastrowid
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def get_investments(self, user_id):
+        user_id = validate_positive_id(user_id, "user_id")
+        connection = self._connection()
+        try:
+            return connection.execute(
+                """
+                SELECT p.id, p.account_id, p.investment_type, p.name, p.provider,
+                       p.contribution_amount, p.frequency, p.interval_count,
+                       p.next_date, p.maturity_date, p.total_contributed,
+                       p.current_value, p.status, p.last_contribution_date,
+                       p.notes, a.name
+                FROM investment_plans p
+                JOIN accounts a ON a.id = p.account_id
+                WHERE p.user_id = ?
+                ORDER BY CASE p.status WHEN 'active' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END,
+                         p.next_date, p.id
+                """,
+                (user_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+
+    def update_investment(
+        self, user_id, investment_id, account_id, investment_type, name,
+        provider, contribution_amount, frequency, next_date, interval_count=1,
+        maturity_date=None, current_value=0, status="active", notes=None,
+    ):
+        investment_id = validate_positive_id(investment_id, "investment_id")
+        values = self._validate_investment(
+            user_id, account_id, investment_type, name, provider,
+            contribution_amount, frequency, interval_count, next_date,
+            maturity_date, current_value, status, notes,
+        )
+        connection = self._connection()
+        try:
+            self._validate_investment_account(connection, values[0], values[1])
+            cursor = connection.execute(
+                """
+                UPDATE investment_plans SET account_id = ?, investment_type = ?,
+                    name = ?, provider = ?, contribution_amount = ?, frequency = ?,
+                    interval_count = ?, next_date = ?, maturity_date = ?,
+                    current_value = ?, status = ?, notes = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND user_id = ?
+                """,
+                (*values[1:], investment_id, values[0]),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Investment not found.")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def delete_investment(self, user_id, investment_id):
+        user_id = validate_positive_id(user_id, "user_id")
+        investment_id = validate_positive_id(investment_id, "investment_id")
+        connection = self._connection()
+        try:
+            if connection.execute(
+                "SELECT 1 FROM investment_plans WHERE id = ? AND user_id = ?",
+                (investment_id, user_id),
+            ).fetchone() is None:
+                raise ValueError("Investment not found.")
+            connection.execute(
+                "DELETE FROM investment_contributions WHERE investment_id = ? AND user_id = ?",
+                (investment_id, user_id),
+            )
+            connection.execute(
+                "DELETE FROM investment_plans WHERE id = ? AND user_id = ?",
+                (investment_id, user_id),
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    @staticmethod
+    def _insert_investment_contribution(
+        connection, investment_id, user_id, account_id, amount,
+        contribution_date, scheduled_for=None, notes=None,
+    ):
+        cursor = connection.execute(
+            """
+            INSERT INTO investment_contributions
+                (investment_id, user_id, account_id, amount, contribution_date,
+                 scheduled_for, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (investment_id, user_id, account_id, amount, contribution_date,
+             scheduled_for, notes),
+        )
+        connection.execute(
+            "UPDATE accounts SET balance = balance - ? WHERE id = ? AND user_id = ?",
+            (amount, account_id, user_id),
+        )
+        connection.execute(
+            """
+            UPDATE investment_plans
+            SET total_contributed = total_contributed + ?,
+                current_value = current_value + ?, last_contribution_date = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND user_id = ?
+            """,
+            (amount, amount, contribution_date, investment_id, user_id),
+        )
+        return cursor.lastrowid
+
+    def add_investment_contribution(
+        self, user_id, investment_id, amount, contribution_date=None, notes=None
+    ):
+        user_id = validate_positive_id(user_id, "user_id")
+        investment_id = validate_positive_id(investment_id, "investment_id")
+        amount = validate_money(amount)
+        contribution_date = validate_iso_date(
+            contribution_date or date.today().isoformat(),
+            "contribution_date", allow_none=False,
+        )
+        notes = validate_text(
+            notes, "notes", max_length=1000, required=False, allow_newlines=True
+        )
+        connection = self._connection()
+        try:
+            plan = connection.execute(
+                "SELECT account_id FROM investment_plans WHERE id = ? AND user_id = ?",
+                (investment_id, user_id),
+            ).fetchone()
+            if plan is None:
+                raise ValueError("Investment not found.")
+            contribution_id = self._insert_investment_contribution(
+                connection, investment_id, user_id, plan[0], amount,
+                contribution_date, notes=notes,
+            )
+            connection.commit()
+            return contribution_id
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def update_investment_value(self, user_id, investment_id, current_value):
+        user_id = validate_positive_id(user_id, "user_id")
+        investment_id = validate_positive_id(investment_id, "investment_id")
+        current_value = validate_finite_number(current_value, "current_value")
+        if current_value < 0:
+            raise ValueError("current_value must not be negative.")
+        connection = self._connection()
+        try:
+            cursor = connection.execute(
+                """
+                UPDATE investment_plans SET current_value = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND user_id = ?
+                """,
+                (current_value, investment_id, user_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Investment not found.")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def get_investment_contributions(self, user_id, investment_id):
+        user_id = validate_positive_id(user_id, "user_id")
+        investment_id = validate_positive_id(investment_id, "investment_id")
+        connection = self._connection()
+        try:
+            if connection.execute(
+                "SELECT 1 FROM investment_plans WHERE id = ? AND user_id = ?",
+                (investment_id, user_id),
+            ).fetchone() is None:
+                raise ValueError("Investment not found.")
+            return connection.execute(
+                """
+                SELECT id, amount, contribution_date, scheduled_for, notes
+                FROM investment_contributions
+                WHERE investment_id = ? AND user_id = ?
+                ORDER BY contribution_date DESC, id DESC
+                """,
+                (investment_id, user_id),
+            ).fetchall()
+        finally:
+            connection.close()
+
+    def process_investments(self, user_id, through_date=None):
+        user_id = validate_positive_id(user_id, "user_id")
+        through_date = validate_iso_date(
+            through_date or date.today().isoformat(), "through_date", allow_none=False
+        )
+        connection = self._connection()
+        generated = []
+        try:
+            if not hasattr(connection, "pool"):
+                connection.execute("BEGIN IMMEDIATE")
+            lock_clause = " FOR UPDATE" if hasattr(connection, "pool") else ""
+            rows = connection.execute(
+                """
+                SELECT id, account_id, contribution_amount, frequency,
+                       interval_count, next_date, maturity_date, name
+                FROM investment_plans
+                WHERE user_id = ? AND status = 'active' AND next_date <= ?
+                ORDER BY next_date, id
+                """ + lock_clause,
+                (user_id, through_date),
+            ).fetchall()
+            for row in rows:
+                investment_id, account_id, amount, frequency, interval_count, next_date, maturity_date, name = row
+                occurrence = str(next_date)
+                maturity = str(maturity_date) if maturity_date else None
+                processed = 0
+                last_occurrence = None
+                while occurrence <= through_date and (
+                    maturity is None or occurrence <= maturity
+                ):
+                    last_occurrence = occurrence
+                    exists = connection.execute(
+                        """
+                        SELECT 1 FROM investment_contributions
+                        WHERE investment_id = ? AND scheduled_for = ?
+                        """,
+                        (investment_id, occurrence),
+                    ).fetchone()
+                    if exists is None:
+                        contribution_id = self._insert_investment_contribution(
+                            connection, investment_id, user_id, account_id,
+                            amount, occurrence, scheduled_for=occurrence,
+                        )
+                        generated.append(contribution_id)
+                    if frequency == "one_time":
+                        break
+                    occurrence = _advance_date(occurrence, frequency, interval_count)
+                    processed += 1
+                    if processed >= 500:
+                        raise ValueError("Investment catch-up exceeds 500 contributions.")
+                completed = frequency == "one_time" or (
+                    maturity is not None and (
+                        last_occurrence is None or occurrence > maturity
+                    )
+                )
+                connection.execute(
+                    """
+                    UPDATE investment_plans
+                    SET next_date = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND user_id = ?
+                    """,
+                    (occurrence, "completed" if completed else "active",
+                     investment_id, user_id),
+                )
+                if completed and maturity:
+                    self._add_notification(
+                        connection, user_id, "investment_maturity",
+                        "Investment plan completed", f"{name} reached its maturity schedule.",
+                        f"investment:{investment_id}:maturity",
+                    )
+            if generated:
+                self._add_notification(
+                    connection, user_id, "investment_generated",
+                    "Investment contributions generated",
+                    f"{len(generated)} scheduled investment contribution(s) were recorded.",
+                )
+            connection.commit()
+            return generated
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def get_investment_summary(self, user_id):
+        user_id = validate_positive_id(user_id, "user_id")
+        connection = self._connection()
+        try:
+            row = connection.execute(
+                """
+                SELECT COALESCE(SUM(total_contributed), 0),
+                       COALESCE(SUM(current_value), 0),
+                       SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END),
+                       MIN(CASE WHEN status = 'active' THEN next_date END)
+                FROM investment_plans WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+            contributed = float(row[0])
+            current = float(row[1])
+            return {
+                "total_contributed": contributed,
+                "current_value": current,
+                "gain_loss": current - contributed,
+                "active_plans": int(row[2] or 0),
+                "next_contribution_date": row[3],
+            }
+        finally:
+            connection.close()
+
+    def get_total_loan_emi(self, user_id, start_date=None, end_date=None, loan_type=None):
+        user_id = validate_positive_id(user_id, "user_id")
+        start_date, end_date = validate_date_range(start_date, end_date)
+        params = [user_id]
+        query = """
+            SELECT COALESCE(SUM(t.amount), 0)
+            FROM transactions t
+            WHERE t.user_id = ? AND t.loan_type IS NOT NULL
+        """
+        if loan_type:
+            loan_type = validate_text(loan_type, "loan_type", max_length=20).casefold()
+            if loan_type not in VALID_LOAN_TYPES:
+                raise ValueError("Unsupported loan_type.")
+            query += " AND t.loan_type = ?"
+            params.append(loan_type)
+        if start_date:
+            query += " AND t.transaction_date >= ?"
+            params.append(start_date)
+        if end_date:
+            query += " AND t.transaction_date <= ?"
+            params.append(end_date)
+        connection = self._connection()
+        try:
+            return float(connection.execute(query, tuple(params)).fetchone()[0])
         finally:
             connection.close()

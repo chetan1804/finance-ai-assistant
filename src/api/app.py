@@ -48,6 +48,13 @@ from src.api.schemas import (
     RecurringProcessResponse,
     TransactionImportResponse,
     NotificationResponse,
+    InvestmentWrite,
+    InvestmentResponse,
+    InvestmentContributionCreate,
+    InvestmentContributionResponse,
+    InvestmentProcessResponse,
+    InvestmentValueUpdate,
+    InvestmentSummaryResponse,
 )
 from src.database.db import initialize_database
 from src.database.finance_service import FinanceService
@@ -450,6 +457,14 @@ def create_app(
     def dashboard():
         return FileResponse(ui_directory / "index.html")
 
+    if (ui_directory / "favicon.svg").is_file():
+        @application.get("/favicon.svg", include_in_schema=False)
+        def favicon():
+            return FileResponse(
+                ui_directory / "favicon.svg",
+                media_type="image/svg+xml",
+            )
+
     @application.get(
         "/api/v1/accounts",
         response_model=list[AccountResponse],
@@ -694,6 +709,7 @@ def create_app(
                 "end_date": row[9], "is_active": bool(row[10]),
                 "last_generated_date": row[11], "merchant": row[12],
                 "notes": row[13], "account": row[14], "category": row[15],
+                "schedule_kind": row[16], "loan_type": row[17], "lender": row[18],
             }
             for row in service.get_recurring_transactions(user_id)
         ]
@@ -721,6 +737,7 @@ def create_app(
             payload.frequency, payload.next_date.isoformat(), payload.interval_count,
             payload.end_date.isoformat() if payload.end_date else None,
             payload.merchant, payload.notes,
+            payload.schedule_kind, payload.loan_type, payload.lender,
         )
         return {"id": recurring_id}
 
@@ -735,6 +752,7 @@ def create_app(
             payload.frequency, payload.next_date.isoformat(), payload.interval_count,
             payload.end_date.isoformat() if payload.end_date else None,
             payload.merchant, payload.notes, payload.is_active,
+            payload.schedule_kind, payload.loan_type, payload.lender,
         )
         return {"id": recurring_id}
 
@@ -745,6 +763,144 @@ def create_app(
     def delete_recurring(recurring_id: int, user_id: int = Depends(current_user)):
         service.delete_recurring_transaction(user_id, recurring_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.get(
+        "/api/v1/investments/summary",
+        response_model=InvestmentSummaryResponse,
+    )
+    def investment_summary(user_id: int = Depends(current_user)):
+        return service.get_investment_summary(user_id)
+
+    @application.post(
+        "/api/v1/investments/process",
+        response_model=InvestmentProcessResponse,
+    )
+    def process_investments(
+        payload: RecurringProcessRequest,
+        user_id: int = Depends(current_user),
+    ):
+        contribution_ids = service.process_investments(
+            user_id,
+            payload.through_date.isoformat() if payload.through_date else None,
+        )
+        return {
+            "generated_count": len(contribution_ids),
+            "contribution_ids": contribution_ids,
+        }
+
+    @application.get(
+        "/api/v1/investments",
+        response_model=list[InvestmentResponse],
+    )
+    def investments(user_id: int = Depends(current_user)):
+        return [
+            {
+                "id": row[0], "account_id": row[1], "investment_type": row[2],
+                "name": row[3], "provider": row[4],
+                "contribution_amount": float(row[5]), "frequency": row[6],
+                "interval_count": row[7], "next_date": row[8],
+                "maturity_date": row[9], "total_contributed": float(row[10]),
+                "current_value": float(row[11]), "status": row[12],
+                "last_contribution_date": row[13], "notes": row[14],
+                "account": row[15], "gain_loss": float(row[11]) - float(row[10]),
+            }
+            for row in service.get_investments(user_id)
+        ]
+
+    @application.post(
+        "/api/v1/investments",
+        response_model=TransactionCreated,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_investment(
+        payload: InvestmentWrite,
+        user_id: int = Depends(current_user),
+    ):
+        investment_id = service.create_investment(
+            user_id, payload.account_id, payload.investment_type, payload.name,
+            payload.provider, payload.contribution_amount, payload.frequency,
+            payload.next_date.isoformat(), payload.interval_count,
+            payload.maturity_date.isoformat() if payload.maturity_date else None,
+            payload.current_value, payload.status, payload.notes,
+        )
+        return {"id": investment_id}
+
+    @application.put(
+        "/api/v1/investments/{investment_id}",
+        response_model=TransactionCreated,
+    )
+    def update_investment(
+        investment_id: int,
+        payload: InvestmentWrite,
+        user_id: int = Depends(current_user),
+    ):
+        service.update_investment(
+            user_id, investment_id, payload.account_id, payload.investment_type,
+            payload.name, payload.provider, payload.contribution_amount,
+            payload.frequency, payload.next_date.isoformat(), payload.interval_count,
+            payload.maturity_date.isoformat() if payload.maturity_date else None,
+            payload.current_value, payload.status, payload.notes,
+        )
+        return {"id": investment_id}
+
+    @application.delete(
+        "/api/v1/investments/{investment_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def delete_investment(
+        investment_id: int,
+        user_id: int = Depends(current_user),
+    ):
+        service.delete_investment(user_id, investment_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.get(
+        "/api/v1/investments/{investment_id}/contributions",
+        response_model=list[InvestmentContributionResponse],
+    )
+    def investment_contributions(
+        investment_id: int,
+        user_id: int = Depends(current_user),
+    ):
+        return [
+            {
+                "id": row[0], "amount": float(row[1]),
+                "contribution_date": row[2], "scheduled_for": row[3],
+                "notes": row[4],
+            }
+            for row in service.get_investment_contributions(user_id, investment_id)
+        ]
+
+    @application.post(
+        "/api/v1/investments/{investment_id}/contributions",
+        response_model=TransactionCreated,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def add_investment_contribution(
+        investment_id: int,
+        payload: InvestmentContributionCreate,
+        user_id: int = Depends(current_user),
+    ):
+        contribution_id = service.add_investment_contribution(
+            user_id, investment_id, payload.amount,
+            payload.contribution_date.isoformat() if payload.contribution_date else None,
+            payload.notes,
+        )
+        return {"id": contribution_id}
+
+    @application.put(
+        "/api/v1/investments/{investment_id}/value",
+        response_model=TransactionCreated,
+    )
+    def update_investment_value(
+        investment_id: int,
+        payload: InvestmentValueUpdate,
+        user_id: int = Depends(current_user),
+    ):
+        service.update_investment_value(
+            user_id, investment_id, payload.current_value
+        )
+        return {"id": investment_id}
 
     @application.get(
         "/api/v1/notifications",

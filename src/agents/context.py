@@ -6,6 +6,8 @@ ALLOWED_INTENTS = {
     "income",
     "category_expense",
     "balance",
+    "loan_emi",
+    "investment",
     "unknown",
 }
 

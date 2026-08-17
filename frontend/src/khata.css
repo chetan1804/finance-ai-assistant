@@ -153,6 +153,25 @@ button:disabled { cursor: wait; opacity: .55; transform: none !important; }
 .recurring-panel { display: grid; grid-template-columns: 1.1fr .9fr; gap: 28px; align-items: start; }
 .recurring-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .recurring-list { border-top: 0; padding-top: 0; }
+.investment-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.mini-metric { min-height: 112px; display: grid; align-content: center; gap: 7px; }
+.mini-metric span, .mini-metric small { color: var(--muted); font-size: .68rem; }
+.mini-metric strong { color: var(--green); font-family: Georgia, serif; font-size: 1.35rem; font-weight: 500; }
+.mini-metric.negative strong, .negative-value { color: #a34637; }
+.investment-panel { display: grid; gap: 28px; }
+.investment-form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.investment-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.investment-card { padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: rgba(255,255,255,.55); }
+.investment-card-heading { display: flex; justify-content: space-between; gap: 12px; }
+.investment-card h3 { margin: 4px 0; font-family: Georgia, serif; font-size: 1.1rem; font-weight: 500; }
+.investment-card small, .investment-card p { color: var(--muted); font-size: .68rem; }
+.investment-type { color: var(--green); font-size: .6rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.investment-values { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 17px 0 12px; }
+.investment-values span, .investment-values strong { display: block; }
+.investment-values span { color: var(--muted); font-size: .62rem; }
+.investment-values strong { margin-top: 4px; color: var(--ink); font-size: .78rem; }
+.investment-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 15px; }
+.investment-actions .secondary-button { min-height: 34px; padding: 7px 10px; font-size: .66rem; }
 .status-label { display: inline-block; margin-top: 7px; padding: 4px 7px; border-radius: 99px; color: #77645b; background: #eee8e3; font-size: .6rem; font-weight: 800; text-transform: uppercase; }
 .status-label.active { color: var(--green); background: var(--green-soft); }
 .notification-list { display: grid; gap: 10px; }
@@ -263,6 +282,7 @@ tbody tr:hover { background: rgba(220,235,227,.2); }
 @media (max-width: 1100px) {
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
   .account-grid { grid-template-columns: repeat(2, 1fr); }
+  .investment-metrics { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 820px) {
   .sidebar { position: sticky; top: 0; width: 100%; height: auto; flex-direction: row; align-items: center; padding: 11px 16px; border: 0; border-bottom: 1px solid var(--line); }
@@ -273,7 +293,7 @@ tbody tr:hover { background: rgba(220,235,227,.2); }
   .topbar, .section-heading { align-items: flex-start; flex-direction: column; }
   .topbar-actions { width: 100%; flex-wrap: wrap; }
   .last-updated { width: 100%; }
-  .insight-grid, .assistant-section, .security-grid, .planning-grid, .recurring-panel, .transfer-grid { grid-template-columns: 1fr; }
+  .insight-grid, .assistant-section, .security-grid, .planning-grid, .recurring-panel, .transfer-grid, .investment-form { grid-template-columns: 1fr; }
   .privacy-panel { grid-column: auto; }
   .assistant-spark { margin-bottom: 22px; }
 }
@@ -282,7 +302,7 @@ tbody tr:hover { background: rgba(220,235,227,.2); }
   .main-content { padding: 20px 14px 48px; }
   .topbar { gap: 18px; margin-bottom: 34px; }
   .section-block { margin-bottom: 48px; }
-  .metric-grid, .account-grid, .preferences-form, .form-grid, .privacy-panel, .compact-form, .recurring-form { grid-template-columns: 1fr; }
+  .metric-grid, .account-grid, .preferences-form, .form-grid, .privacy-panel, .compact-form, .recurring-form, .investment-metrics, .investment-list { grid-template-columns: 1fr; }
   .privacy-panel .panel-heading, .privacy-panel .panel-copy, .privacy-panel .danger-zone { grid-column: auto; }
   .metric-card { min-height: 145px; }
   .wide-field { grid-column: auto; }

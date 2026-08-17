@@ -147,7 +147,7 @@ def test_postgres_backup_can_be_restored_to_an_empty_database(monkeypatch, tmp_p
             migration_count = connection.execute(
                 "SELECT COUNT(*) FROM schema_migrations"
             ).fetchone()[0]
-            assert migration_count == 5
+            assert migration_count == 7
     finally:
         with psycopg.connect(admin_url, autocommit=True) as admin:
             admin.execute(

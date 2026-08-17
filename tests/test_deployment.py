@@ -82,6 +82,10 @@ def test_api_serves_configured_react_build(monkeypatch, tmp_path):
         encoding="utf-8",
     )
     (assets / "app.js").write_text("console.log('react')", encoding="utf-8")
+    (react_dist / "favicon.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg"/>',
+        encoding="utf-8",
+    )
     monkeypatch.setenv("FINANCE_UI_DIST", str(react_dist))
 
     application = create_app(
@@ -94,10 +98,13 @@ def test_api_serves_configured_react_build(monkeypatch, tmp_path):
 
     page = client.get("/")
     script = client.get("/assets/app.js")
+    favicon = client.get("/favicon.svg")
 
     assert page.status_code == 200
     assert "React deployment" in page.text
     assert script.status_code == 200
+    assert favicon.status_code == 200
+    assert favicon.headers["content-type"].startswith("image/svg+xml")
     assert "default-src 'self'" in page.headers["content-security-policy"]
 
 

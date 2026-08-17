@@ -459,12 +459,12 @@ class AuthService:
                 "transactions": (
                     "SELECT id, account_id, category_id, transaction_type, amount, "
                     "description, transaction_date, merchant, notes, recurring_transaction_id, "
-                    "scheduled_for, import_batch_id, created_at, updated_at "
+                    "scheduled_for, import_batch_id, loan_type, created_at, updated_at "
                     "FROM transactions WHERE user_id = ? ORDER BY id",
                     ("id", "account_id", "category_id", "transaction_type", "amount",
                      "description", "transaction_date", "merchant", "notes",
                      "recurring_transaction_id", "scheduled_for",
-                     "import_batch_id",
+                     "import_batch_id", "loan_type",
                      "created_at", "updated_at"),
                 ),
                 "import_batches": (
@@ -480,12 +480,32 @@ class AuthService:
                 "recurring_transactions": (
                     "SELECT id, account_id, category_id, transaction_type, amount, "
                     "description, merchant, notes, frequency, interval_count, next_date, "
-                    "end_date, is_active, last_generated_date, created_at, updated_at "
+                    "end_date, is_active, last_generated_date, schedule_kind, loan_type, "
+                    "lender, created_at, updated_at "
                     "FROM recurring_transactions WHERE user_id = ? ORDER BY id",
                     ("id", "account_id", "category_id", "transaction_type", "amount",
                      "description", "merchant", "notes", "frequency", "interval_count",
                      "next_date", "end_date", "is_active", "last_generated_date",
+                     "schedule_kind", "loan_type", "lender",
                      "created_at", "updated_at"),
+                ),
+                "investment_plans": (
+                    "SELECT id, account_id, investment_type, name, provider, "
+                    "contribution_amount, frequency, interval_count, next_date, "
+                    "maturity_date, total_contributed, current_value, status, "
+                    "last_contribution_date, notes, created_at, updated_at "
+                    "FROM investment_plans WHERE user_id = ? ORDER BY id",
+                    ("id", "account_id", "investment_type", "name", "provider",
+                     "contribution_amount", "frequency", "interval_count", "next_date",
+                     "maturity_date", "total_contributed", "current_value", "status",
+                     "last_contribution_date", "notes", "created_at", "updated_at"),
+                ),
+                "investment_contributions": (
+                    "SELECT id, investment_id, account_id, amount, contribution_date, "
+                    "scheduled_for, notes, created_at FROM investment_contributions "
+                    "WHERE user_id = ? ORDER BY id",
+                    ("id", "investment_id", "account_id", "amount", "contribution_date",
+                     "scheduled_for", "notes", "created_at"),
                 ),
                 "budgets": (
                     "SELECT id, category_id, amount, period, start_date, end_date, "
@@ -505,7 +525,7 @@ class AuthService:
                 rows = connection.execute(query, (user_id,)).fetchall()
                 collections[name] = self._records(rows, columns)
             return {
-                "export_version": 3,
+                "export_version": 4,
                 "exported_at": datetime.now(timezone.utc).isoformat(),
                 "profile": self._records(
                     [profile],
@@ -533,6 +553,8 @@ class AuthService:
                 "auth_sessions",
                 "user_credentials",
                 "notifications",
+                "investment_contributions",
+                "investment_plans",
                 "transactions",
                 "import_batches",
                 "recurring_transactions",

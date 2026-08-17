@@ -64,8 +64,8 @@ Conversation JSON:
 {json.dumps(user_messages, ensure_ascii=False)}
 
 Return only these five lines:
-INTENT: <expense|income|category_expense|balance|unknown>
-CATEGORY: <category or NONE>
+INTENT: <expense|income|category_expense|balance|loan_emi|investment|unknown>
+CATEGORY: <expense category, loan type, or NONE>
 START_DATE: <YYYY-MM-DD or NONE>
 END_DATE: <YYYY-MM-DD or NONE>
 RESOLVED_QUERY: <the current request as a standalone question>
@@ -74,6 +74,9 @@ Rules:
 - "How much did I spend?" is expense.
 - "How much did I spend on food?" is category_expense with category food.
 - Balance and savings questions use balance.
+- Loan payment or EMI questions use loan_emi. Put home, car, personal,
+  education, or other in CATEGORY when the loan type is specified.
+- Questions about total invested or contributed use investment.
 - Resolve follow-ups from earlier user messages in this conversation.
 - Convert relative dates such as this month or last month using today's date.
 - Do not invent a date when the user did not specify a period.
@@ -140,7 +143,8 @@ def generate_response(state: FinanceState):
         )
     elif result is None:
         answer = (
-            "I can help with income, expenses, savings, or category spending. "
+            "I can help with income, expenses, savings, EMIs, investments, "
+            "or category spending. "
             "Please rephrase your finance question."
         )
     else:

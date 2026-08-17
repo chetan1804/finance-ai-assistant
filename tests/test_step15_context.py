@@ -44,3 +44,16 @@ def test_personalized_currency_formatting():
     assert format_money(20000, "INR") == "₹20,000"
     assert format_money(125000.5, "INR") == "₹1,25,000.5"
     assert format_money(-1200, "USD") == "-$1,200"
+
+
+def test_parse_context_accepts_loan_and_investment_intents():
+    loan = parse_context(
+        "INTENT: loan_emi\nCATEGORY: home\nSTART_DATE: NONE\nEND_DATE: NONE"
+    )
+    investment = parse_context(
+        "INTENT: investment\nCATEGORY: NONE\nSTART_DATE: NONE\nEND_DATE: NONE"
+    )
+
+    assert loan["intent"] == "loan_emi"
+    assert loan["category"] == "home"
+    assert investment["intent"] == "investment"

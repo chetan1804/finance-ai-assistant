@@ -303,10 +303,29 @@ def test_logout_all_requires_password_and_revokes_every_session(tmp_path):
 def test_privacy_export_contains_user_data_without_authentication_secrets(tmp_path):
     client, _ = auth_client(tmp_path)
     registered = register_user(client)
+    headers = bearer(registered)
+    account_id = client.get("/api/v1/accounts", headers=headers).json()[0]["id"]
+    investment = client.post(
+        "/api/v1/investments",
+        headers=headers,
+        json={
+            "account_id": account_id,
+            "investment_type": "mutual_fund_sip",
+            "name": "Index SIP",
+            "contribution_amount": 1500,
+            "frequency": "monthly",
+            "next_date": "2026-09-01",
+        },
+    ).json()
+    client.post(
+        f"/api/v1/investments/{investment['id']}/contributions",
+        headers=headers,
+        json={"amount": 1500, "contribution_date": "2026-08-01"},
+    )
 
     exported = client.post(
         "/api/v1/privacy/export",
-        headers=bearer(registered),
+        headers=headers,
         json={"password": "correct-horse-battery"},
     )
 
@@ -315,6 +334,8 @@ def test_privacy_export_contains_user_data_without_authentication_secrets(tmp_pa
     assert data["profile"]["email"] == "asha@example.com"
     assert data["accounts"][0]["name"] == "Main account"
     assert len(data["categories"]) == 8
+    assert data["investment_plans"][0]["name"] == "Index SIP"
+    assert data["investment_contributions"][0]["amount"] == 1500
     serialized = exported.text.casefold()
     assert "password_hash" not in serialized
     assert "access_token" not in serialized
@@ -366,6 +387,20 @@ def test_account_deletion_removes_finance_auth_and_checkpoint_data(
     client, database_path = auth_client(tmp_path)
     registered = register_user(client)
     user_id = registered["user_id"]
+    headers = bearer(registered)
+    account_id = client.get("/api/v1/accounts", headers=headers).json()[0]["id"]
+    client.post(
+        "/api/v1/investments",
+        headers=headers,
+        json={
+            "account_id": account_id,
+            "investment_type": "fd",
+            "name": "Emergency FD",
+            "contribution_amount": 10000,
+            "frequency": "one_time",
+            "next_date": "2026-09-01",
+        },
+    )
     with sqlite3.connect(checkpoint_path) as connection:
         connection.execute(
             """
@@ -412,6 +447,12 @@ def test_account_deletion_removes_finance_auth_and_checkpoint_data(
         ).fetchone()[0] == 0
         assert connection.execute(
             "SELECT COUNT(*) FROM accounts WHERE user_id = ?", (user_id,)
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM investment_plans WHERE user_id = ?", (user_id,)
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM investment_contributions WHERE user_id = ?", (user_id,)
         ).fetchone()[0] == 0
     finally:
         connection.close()
