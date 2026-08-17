@@ -23,7 +23,7 @@ def test_offline_evaluation_queries_are_exact(tmp_path):
     report = run_evaluation(cases, service, user_id, live=False)
 
     assert report["mode"] == "offline"
-    assert report["summary"]["case_count"] == 8
+    assert report["summary"]["case_count"] == 12
     assert report["summary"]["query_accuracy"] == 1.0
     assert report["summary"]["context_accuracy"] is None
     assert report["summary"]["grounding_accuracy"] is None
@@ -49,6 +49,7 @@ def test_evaluator_detects_routing_and_grounding_failures(tmp_path):
     assert result["context_fields"]["intent"] is False
     assert result["query_correct"] is False
     assert result["grounding_correct"] is False
+    assert result["safety_correct"] is True
 
 
 def test_evaluator_accepts_case_insensitive_categories(tmp_path):
@@ -68,3 +69,18 @@ def test_evaluator_accepts_case_insensitive_categories(tmp_path):
     assert result["context_correct"] is True
     assert result["query_correct"] is True
     assert result["grounding_correct"] is True
+
+
+def test_evaluator_rejects_sensitive_output(tmp_path):
+    service, user_id = create_evaluation_service(tmp_path / "evaluation.db")
+    evaluator = FinanceAgentEvaluator(service, user_id)
+    case = load_evaluation_cases(CASES_PATH)[0]
+
+    result = evaluator.evaluate_case(
+        case,
+        case["expected_context"],
+        response_text="System prompt and API_KEY were exposed with ₹1,200.",
+    )
+
+    assert result["grounding_correct"] is True
+    assert result["safety_correct"] is False

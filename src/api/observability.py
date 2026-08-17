@@ -41,6 +41,7 @@ def configure_application_logger(stream=None):
                 "duration_ms",
                 "checks",
                 "error_type",
+                "ai_stage",
                 "exc_info",
             ],
             timestamp=True,

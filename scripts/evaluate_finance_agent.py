@@ -127,6 +127,7 @@ def print_report(report):
         ("Context field accuracy", "context_field_accuracy"),
         ("Query accuracy", "query_accuracy"),
         ("Grounding accuracy", "grounding_accuracy"),
+        ("Safety accuracy", "safety_accuracy"),
     ):
         value = summary[key]
         display = "not measured" if value is None else f"{value:.1%}"
@@ -138,6 +139,7 @@ def print_report(report):
         if result["query_correct"] is False
         or result["context_correct"] is False
         or result["grounding_correct"] is False
+        or result["safety_correct"] is False
     ]
     if failures:
         print("\nFailed cases:")

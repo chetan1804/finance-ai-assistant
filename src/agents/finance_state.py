@@ -23,6 +23,8 @@ class FinanceState(TypedDict, total=False):
 
     resolved_query: Optional[str]
 
+    ai_status: Optional[str]
+
     finance_result: Optional[object]
 
     preferences: Optional[dict]

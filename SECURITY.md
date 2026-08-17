@@ -13,7 +13,12 @@
 - Checkpoint deserialization only permits LangGraph's safe allowlisted types.
 - LLM output is reduced to an allowlisted intent and validated dates before a
   database query is selected.
+- Common direct and encoded prompt-injection attempts are rejected before an
+  LLM request, and provider failures produce a fixed response without error or
+  secret details.
 - Financial responses are grounded in a server-side database result.
+- Final monetary responses are deterministic and do not send the verified
+  financial result through a second LLM call.
 - API keys and local databases are excluded from Git.
 - New databases include defensive `CHECK` constraints.
 - API user identity is derived from an opaque bearer token, never a request body.
@@ -60,6 +65,10 @@
   PostgreSQL storage must provide encryption and restricted access.
 - Provider prompts and transaction data are sent to the configured LLM service.
   Production use requires an approved data-processing and retention policy.
+- Prompt-injection pattern matching is a defense-in-depth control, not a proof
+  that every adversarial phrasing will be detected. Keep database tools
+  user-scoped, maintain the adversarial evaluation set, and review new agent
+  capabilities before granting them side effects.
 - The in-memory rate limiter remains a local-development fallback. Production
   multi-worker or multi-replica deployments must configure Redis.
 - TLS termination remains the production platform's responsibility. Forwarded

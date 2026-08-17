@@ -41,6 +41,21 @@ curl --fail http://127.0.0.1:8000/version
 docker compose ps
 ```
 
+Run the performance regression gate against the deployed container:
+
+```bash
+python -m scripts.load_test_api \
+  --base-url http://127.0.0.1:8000 \
+  --endpoint /ready \
+  --requests 200 \
+  --concurrency 20
+```
+
+The default budget is p95 latency at or below 500 ms, at least 20 requests per
+second, and no failed requests. Treat these as CI regression thresholds rather
+than universal production objectives. Establish production targets using the
+expected region, database, replica count, and traffic mix.
+
 Open `http://127.0.0.1:8000/` and enter the generated bearer token.
 
 For managed production deployments, prefer an immutable GHCR digest generated
@@ -58,6 +73,11 @@ Use the repository `Dockerfile` and configure:
 - Persistent volume mount: `/app/data`
 - Secret: `GROQ_API_KEY`
 - Instance count: `1`
+
+AI provider behavior is configured with `FINANCE_LLM_MODEL`,
+`FINANCE_LLM_TIMEOUT_SECONDS`, `FINANCE_LLM_MAX_RETRIES`, and
+`FINANCE_LLM_MAX_TOKENS`. Keep the bounded defaults unless load and reliability
+tests justify a change.
 
 Set the following production security values:
 

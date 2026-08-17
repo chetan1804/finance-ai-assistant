@@ -84,8 +84,8 @@ The offline evaluation uses a deterministic database and does not call an LLM:
 python -m scripts.evaluate_finance_agent
 ```
 
-The live evaluation measures intent/date extraction, query correctness, and
-whether responses contain the verified financial amount:
+The live evaluation measures intent/date extraction, query correctness,
+grounding against verified financial amounts, and unsafe-output leakage:
 
 ```bash
 python -m scripts.evaluate_finance_agent --live
@@ -93,6 +93,31 @@ python -m scripts.evaluate_finance_agent --live
 
 Use `--output <path>.json` to save case-level results and `--min-score 0.9`
 to set the quality gate. The default minimum score is 80%.
+
+Provider calls have explicit timeout, retry, and output-token limits. Prompt
+injection screening runs before the provider call, provider failures return a
+safe retry response, and final monetary answers are rendered deterministically
+from the database result. See [AI_RELIABILITY.md](AI_RELIABILITY.md) for the
+threat model, configuration, and evaluation workflow.
+
+## Performance Testing
+
+With the API running, execute the repeatable readiness-path baseline:
+
+```bash
+python -m scripts.load_test_api \
+  --requests 200 \
+  --concurrency 20 \
+  --max-p95-ms 500 \
+  --min-rps 20
+```
+
+The command exits unsuccessfully when the latency, throughput, or error-rate
+budget is missed. CI runs the same gate against the production container. Use
+`--endpoint`, `--token`, and `--output` to test an authenticated route and save
+the JSON result. Benchmark the deployed environment before setting tighter
+service objectives; local and shared CI measurements are only regression
+baselines.
 
 ## Security
 
