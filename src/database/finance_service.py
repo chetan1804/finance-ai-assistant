@@ -1,4 +1,5 @@
-from datetime import date
+import calendar
+from datetime import date, timedelta
 
 from src.database.db import get_connection
 from src.security.validation import (
@@ -15,6 +16,25 @@ from src.security.validation import (
 
 VALID_TRANSACTION_TYPES = {"income", "expense", "transfer"}
 VALID_CATEGORY_TYPES = {"income", "expense"}
+VALID_BUDGET_PERIODS = {"weekly", "monthly", "quarterly", "yearly", "custom"}
+VALID_GOAL_PRIORITIES = {"low", "medium", "high"}
+VALID_GOAL_STATUSES = {"active", "completed", "paused"}
+VALID_RECURRING_FREQUENCIES = {"daily", "weekly", "monthly", "yearly"}
+
+
+def _advance_date(value, frequency, interval_count):
+    current = date.fromisoformat(value)
+    if frequency == "daily":
+        return (current + timedelta(days=interval_count)).isoformat()
+    if frequency == "weekly":
+        return (current + timedelta(weeks=interval_count)).isoformat()
+
+    months = interval_count if frequency == "monthly" else interval_count * 12
+    month_index = current.month - 1 + months
+    year = current.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(current.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day).isoformat()
 
 
 class FinanceService:
@@ -1199,5 +1219,437 @@ class FinanceService:
         connection = self._connection()
         try:
             return connection.execute(query, tuple(params)).fetchall()
+        finally:
+            connection.close()
+
+    def create_budget(self, user_id, category_id, amount, period, start_date, end_date):
+        user_id = validate_positive_id(user_id, "user_id")
+        category_id = validate_positive_id(category_id, "category_id")
+        amount = validate_money(amount)
+        period = validate_text(period, "period", max_length=20).casefold()
+        if period not in VALID_BUDGET_PERIODS:
+            raise ValueError("period must be weekly, monthly, quarterly, yearly, or custom.")
+        start_date, end_date = validate_date_range(start_date, end_date)
+        if not start_date or not end_date:
+            raise ValueError("start_date and end_date are required.")
+        connection = self._connection()
+        try:
+            category = connection.execute(
+                """
+                SELECT 1 FROM categories
+                WHERE id = ? AND category_type = 'expense'
+                AND (user_id = ? OR user_id IS NULL)
+                """,
+                (category_id, user_id),
+            ).fetchone()
+            if category is None:
+                raise ValueError("The expense category is not available to the selected user.")
+            cursor = connection.execute(
+                """
+                INSERT INTO budgets
+                    (user_id, category_id, amount, period, start_date, end_date)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, category_id, amount, period, start_date, end_date),
+            )
+            connection.commit()
+            return cursor.lastrowid
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def get_budgets(self, user_id):
+        user_id = validate_positive_id(user_id, "user_id")
+        connection = self._connection()
+        try:
+            return connection.execute(
+                """
+                SELECT b.id, b.category_id, c.name, b.amount, b.period,
+                       b.start_date, b.end_date,
+                       COALESCE((
+                           SELECT SUM(t.amount) FROM transactions t
+                           WHERE t.user_id = b.user_id
+                           AND t.category_id = b.category_id
+                           AND t.transaction_type = 'expense'
+                           AND t.transaction_date BETWEEN b.start_date AND b.end_date
+                       ), 0) AS spent
+                FROM budgets b
+                JOIN categories c ON c.id = b.category_id
+                WHERE b.user_id = ?
+                ORDER BY b.end_date, b.id
+                """,
+                (user_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+
+    def update_budget(self, user_id, budget_id, category_id, amount, period, start_date, end_date):
+        budget_id = validate_positive_id(budget_id, "budget_id")
+        user_id = validate_positive_id(user_id, "user_id")
+        category_id = validate_positive_id(category_id, "category_id")
+        amount = validate_money(amount)
+        period = validate_text(period, "period", max_length=20).casefold()
+        if period not in VALID_BUDGET_PERIODS:
+            raise ValueError("period must be weekly, monthly, quarterly, yearly, or custom.")
+        start_date, end_date = validate_date_range(start_date, end_date)
+        if not start_date or not end_date:
+            raise ValueError("start_date and end_date are required.")
+        connection = self._connection()
+        try:
+            category = connection.execute(
+                """
+                SELECT 1 FROM categories
+                WHERE id = ? AND category_type = 'expense'
+                AND (user_id = ? OR user_id IS NULL)
+                """,
+                (category_id, user_id),
+            ).fetchone()
+            if category is None:
+                raise ValueError("The expense category is not available to the selected user.")
+            cursor = connection.execute(
+                """
+                UPDATE budgets SET category_id = ?, amount = ?, period = ?,
+                    start_date = ?, end_date = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND user_id = ?
+                """,
+                (category_id, amount, period, start_date, end_date, budget_id, user_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Budget not found.")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def delete_budget(self, user_id, budget_id):
+        user_id = validate_positive_id(user_id, "user_id")
+        budget_id = validate_positive_id(budget_id, "budget_id")
+        connection = self._connection()
+        try:
+            cursor = connection.execute(
+                "DELETE FROM budgets WHERE id = ? AND user_id = ?",
+                (budget_id, user_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Budget not found.")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def create_goal(self, user_id, name, target_amount, current_amount=0, target_date=None, priority="medium", status="active"):
+        user_id = validate_positive_id(user_id, "user_id")
+        name = validate_text(name, "name", max_length=100)
+        target_amount = validate_money(target_amount, "target_amount")
+        current_amount = validate_finite_number(current_amount, "current_amount")
+        if current_amount < 0:
+            raise ValueError("current_amount must not be negative.")
+        target_date = validate_iso_date(target_date, "target_date")
+        priority = validate_text(priority, "priority", max_length=20).casefold()
+        status = validate_text(status, "status", max_length=20).casefold()
+        if priority not in VALID_GOAL_PRIORITIES:
+            raise ValueError("priority must be low, medium, or high.")
+        if status not in VALID_GOAL_STATUSES:
+            raise ValueError("status must be active, completed, or paused.")
+        connection = self._connection()
+        try:
+            cursor = connection.execute(
+                """
+                INSERT INTO financial_goals
+                    (user_id, name, target_amount, current_amount, target_date, priority, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, name, target_amount, current_amount, target_date, priority, status),
+            )
+            connection.commit()
+            return cursor.lastrowid
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def get_goals(self, user_id):
+        user_id = validate_positive_id(user_id, "user_id")
+        connection = self._connection()
+        try:
+            return connection.execute(
+                """
+                SELECT id, name, target_amount, current_amount, target_date, priority, status
+                FROM financial_goals WHERE user_id = ?
+                ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END,
+                         target_date, id
+                """,
+                (user_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+
+    def update_goal(self, user_id, goal_id, name, target_amount, current_amount, target_date=None, priority="medium", status="active"):
+        user_id = validate_positive_id(user_id, "user_id")
+        goal_id = validate_positive_id(goal_id, "goal_id")
+        name = validate_text(name, "name", max_length=100)
+        target_amount = validate_money(target_amount, "target_amount")
+        current_amount = validate_finite_number(current_amount, "current_amount")
+        if current_amount < 0:
+            raise ValueError("current_amount must not be negative.")
+        target_date = validate_iso_date(target_date, "target_date")
+        priority = validate_text(priority, "priority", max_length=20).casefold()
+        status = validate_text(status, "status", max_length=20).casefold()
+        if priority not in VALID_GOAL_PRIORITIES or status not in VALID_GOAL_STATUSES:
+            raise ValueError("Invalid goal priority or status.")
+        connection = self._connection()
+        try:
+            cursor = connection.execute(
+                """
+                UPDATE financial_goals SET name = ?, target_amount = ?, current_amount = ?,
+                    target_date = ?, priority = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND user_id = ?
+                """,
+                (name, target_amount, current_amount, target_date, priority, status, goal_id, user_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Financial goal not found.")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def delete_goal(self, user_id, goal_id):
+        user_id = validate_positive_id(user_id, "user_id")
+        goal_id = validate_positive_id(goal_id, "goal_id")
+        connection = self._connection()
+        try:
+            cursor = connection.execute(
+                "DELETE FROM financial_goals WHERE id = ? AND user_id = ?",
+                (goal_id, user_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Financial goal not found.")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def create_recurring_transaction(self, user_id, account_id, category_id, transaction_type, amount, description, frequency, next_date, interval_count=1, end_date=None, merchant=None, notes=None):
+        values = self._validate_recurring(
+            user_id, account_id, category_id, transaction_type, amount, description,
+            frequency, next_date, interval_count, end_date, merchant, notes,
+        )
+        connection = self._connection()
+        try:
+            self._validate_recurring_ownership(connection, *values[:4])
+            cursor = connection.execute(
+                """
+                INSERT INTO recurring_transactions
+                    (user_id, account_id, category_id, transaction_type, amount,
+                     description, frequency, next_date, interval_count, end_date,
+                     merchant, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+            connection.commit()
+            return cursor.lastrowid
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def _validate_recurring(self, user_id, account_id, category_id, transaction_type, amount, description, frequency, next_date, interval_count, end_date, merchant, notes):
+        user_id = validate_positive_id(user_id, "user_id")
+        account_id = validate_positive_id(account_id, "account_id")
+        if category_id is not None:
+            category_id = validate_positive_id(category_id, "category_id")
+        transaction_type = validate_text(transaction_type, "transaction_type", max_length=20).casefold()
+        if transaction_type not in {"income", "expense"}:
+            raise ValueError("Recurring transaction_type must be income or expense.")
+        amount = validate_money(amount)
+        description = validate_text(description, "description", max_length=500, required=False)
+        frequency = validate_text(frequency, "frequency", max_length=20).casefold()
+        if frequency not in VALID_RECURRING_FREQUENCIES:
+            raise ValueError("frequency must be daily, weekly, monthly, or yearly.")
+        if isinstance(interval_count, bool) or not isinstance(interval_count, int) or not 1 <= interval_count <= 365:
+            raise ValueError("interval_count must be an integer between 1 and 365.")
+        next_date, end_date = validate_date_range(next_date, end_date)
+        if not next_date:
+            raise ValueError("next_date is required.")
+        merchant = validate_text(merchant, "merchant", max_length=255, required=False)
+        notes = validate_text(notes, "notes", max_length=1000, required=False, allow_newlines=True)
+        return (user_id, account_id, category_id, transaction_type, amount, description, frequency, next_date, interval_count, end_date, merchant, notes)
+
+    @staticmethod
+    def _validate_recurring_ownership(connection, user_id, account_id, category_id, transaction_type):
+        if connection.execute(
+            "SELECT 1 FROM accounts WHERE id = ? AND user_id = ? AND is_active = 1",
+            (account_id, user_id),
+        ).fetchone() is None:
+            raise ValueError("The account does not belong to the selected user.")
+        if category_id is not None and connection.execute(
+            """
+            SELECT 1 FROM categories WHERE id = ? AND category_type = ?
+            AND (user_id = ? OR user_id IS NULL)
+            """,
+            (category_id, transaction_type, user_id),
+        ).fetchone() is None:
+            raise ValueError("The category is not available for this transaction type.")
+
+    def get_recurring_transactions(self, user_id):
+        user_id = validate_positive_id(user_id, "user_id")
+        connection = self._connection()
+        try:
+            return connection.execute(
+                """
+                SELECT r.id, r.account_id, r.category_id, r.transaction_type, r.amount,
+                       r.description, r.frequency, r.interval_count, r.next_date,
+                       r.end_date, r.is_active, r.last_generated_date, r.merchant,
+                       r.notes, a.name, c.name
+                FROM recurring_transactions r
+                JOIN accounts a ON a.id = r.account_id
+                LEFT JOIN categories c ON c.id = r.category_id
+                WHERE r.user_id = ? ORDER BY r.is_active DESC, r.next_date, r.id
+                """,
+                (user_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+
+    def update_recurring_transaction(self, user_id, recurring_id, account_id, category_id, transaction_type, amount, description, frequency, next_date, interval_count=1, end_date=None, merchant=None, notes=None, is_active=True):
+        recurring_id = validate_positive_id(recurring_id, "recurring_id")
+        values = self._validate_recurring(
+            user_id, account_id, category_id, transaction_type, amount, description,
+            frequency, next_date, interval_count, end_date, merchant, notes,
+        )
+        connection = self._connection()
+        try:
+            self._validate_recurring_ownership(connection, *values[:4])
+            cursor = connection.execute(
+                """
+                UPDATE recurring_transactions SET account_id = ?, category_id = ?,
+                    transaction_type = ?, amount = ?, description = ?, frequency = ?,
+                    next_date = ?, interval_count = ?, end_date = ?, merchant = ?, notes = ?,
+                    is_active = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND user_id = ?
+                """,
+                (*values[1:], int(bool(is_active)), recurring_id, values[0]),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Recurring transaction not found.")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def delete_recurring_transaction(self, user_id, recurring_id):
+        user_id = validate_positive_id(user_id, "user_id")
+        recurring_id = validate_positive_id(recurring_id, "recurring_id")
+        connection = self._connection()
+        try:
+            connection.execute(
+                "UPDATE transactions SET recurring_transaction_id = NULL WHERE recurring_transaction_id = ? AND user_id = ?",
+                (recurring_id, user_id),
+            )
+            cursor = connection.execute(
+                "DELETE FROM recurring_transactions WHERE id = ? AND user_id = ?",
+                (recurring_id, user_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Recurring transaction not found.")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def process_recurring_transactions(self, user_id, through_date=None):
+        user_id = validate_positive_id(user_id, "user_id")
+        through_date = validate_iso_date(
+            through_date or date.today().isoformat(), "through_date", allow_none=False
+        )
+        connection = self._connection()
+        generated = []
+        try:
+            if not hasattr(connection, "pool"):
+                connection.execute("BEGIN IMMEDIATE")
+            lock_clause = " FOR UPDATE" if hasattr(connection, "pool") else ""
+            rows = connection.execute(
+                """
+                SELECT id, account_id, category_id, transaction_type, amount,
+                       description, frequency, interval_count, next_date, end_date,
+                       merchant, notes
+                FROM recurring_transactions
+                WHERE user_id = ? AND is_active = 1 AND next_date <= ?
+                ORDER BY next_date, id
+                """ + lock_clause,
+                (user_id, through_date),
+            ).fetchall()
+            for row in rows:
+                (recurring_id, account_id, category_id, transaction_type, amount,
+                 description, frequency, interval_count, next_date, end_date,
+                 merchant, notes) = row
+                occurrence = str(next_date)
+                end = str(end_date) if end_date else None
+                processed = 0
+                last_occurrence = None
+                while occurrence <= through_date and (end is None or occurrence <= end):
+                    last_occurrence = occurrence
+                    exists = connection.execute(
+                        """
+                        SELECT 1 FROM transactions
+                        WHERE recurring_transaction_id = ? AND scheduled_for = ?
+                        """,
+                        (recurring_id, occurrence),
+                    ).fetchone()
+                    if exists is None:
+                        cursor = connection.execute(
+                            """
+                            INSERT INTO transactions
+                                (user_id, account_id, category_id, transaction_type, amount,
+                                 description, transaction_date, merchant, notes,
+                                 recurring_transaction_id, scheduled_for)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (user_id, account_id, category_id, transaction_type, amount,
+                             description, occurrence, merchant, notes, recurring_id, occurrence),
+                        )
+                        delta = amount if transaction_type == "income" else -amount
+                        connection.execute(
+                            "UPDATE accounts SET balance = balance + ? WHERE id = ? AND user_id = ?",
+                            (delta, account_id, user_id),
+                        )
+                        generated.append(cursor.lastrowid)
+                    occurrence = _advance_date(occurrence, frequency, interval_count)
+                    processed += 1
+                    if processed >= 500:
+                        raise ValueError("Recurring catch-up exceeds 500 occurrences.")
+                active = int(not end or occurrence <= end)
+                connection.execute(
+                    """
+                    UPDATE recurring_transactions
+                    SET next_date = ?, last_generated_date = ?, is_active = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND user_id = ?
+                    """,
+                    (occurrence, last_occurrence, active, recurring_id, user_id),
+                )
+            connection.commit()
+            return generated
+        except Exception:
+            connection.rollback()
+            raise
         finally:
             connection.close()

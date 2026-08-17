@@ -368,6 +368,110 @@ def test_transaction_delete_reverses_balance_and_is_user_scoped(api_context):
     )
 
 
+def test_budget_reports_category_spending_and_supports_update(api_context):
+    client = api_context["client"]
+    created = client.post(
+        "/api/v1/budgets",
+        headers=AUTH_HEADERS,
+        json={
+            "category_id": api_context["food_id"],
+            "amount": 5000,
+            "period": "monthly",
+            "start_date": "2026-07-01",
+            "end_date": "2026-07-31",
+        },
+    )
+    budget_id = created.json()["id"]
+    listed = client.get("/api/v1/budgets", headers=AUTH_HEADERS)
+
+    assert created.status_code == 201
+    assert listed.json()[0]["spent"] == 2000
+    assert listed.json()[0]["remaining"] == 3000
+    assert listed.json()[0]["percent_used"] == 40
+
+    updated = client.put(
+        f"/api/v1/budgets/{budget_id}",
+        headers=AUTH_HEADERS,
+        json={
+            "category_id": api_context["food_id"],
+            "amount": 4000,
+            "period": "monthly",
+            "start_date": "2026-07-01",
+            "end_date": "2026-07-31",
+        },
+    )
+    assert updated.json() == {"id": budget_id}
+    assert client.get("/api/v1/budgets", headers=AUTH_HEADERS).json()[0]["percent_used"] == 50
+
+
+def test_financial_goals_are_user_scoped_and_report_progress(api_context):
+    client = api_context["client"]
+    created = client.post(
+        "/api/v1/goals",
+        headers=AUTH_HEADERS,
+        json={
+            "name": "Emergency fund",
+            "target_amount": 100000,
+            "current_amount": 25000,
+            "target_date": "2027-08-01",
+            "priority": "high",
+            "status": "active",
+        },
+    )
+    goals = client.get("/api/v1/goals", headers=AUTH_HEADERS)
+    other_goals = client.get(
+        "/api/v1/goals",
+        headers={"Authorization": f"Bearer {OTHER_TOKEN}"},
+    )
+
+    assert created.status_code == 201
+    assert goals.json()[0]["remaining"] == 75000
+    assert goals.json()[0]["percent_complete"] == 25
+    assert other_goals.json() == []
+
+
+def test_recurring_processing_is_repeatable_and_updates_balance(api_context):
+    client = api_context["client"]
+    created = client.post(
+        "/api/v1/recurring-transactions",
+        headers=AUTH_HEADERS,
+        json={
+            "account_id": api_context["account_id"],
+            "category_id": api_context["food_id"],
+            "transaction_type": "expense",
+            "amount": 100,
+            "description": "Subscription",
+            "frequency": "monthly",
+            "interval_count": 1,
+            "next_date": "2026-06-30",
+            "end_date": "2026-08-31",
+            "is_active": True,
+        },
+    )
+    first = client.post(
+        "/api/v1/recurring-transactions/process",
+        headers=AUTH_HEADERS,
+        json={"through_date": "2026-08-31"},
+    )
+    second = client.post(
+        "/api/v1/recurring-transactions/process",
+        headers=AUTH_HEADERS,
+        json={"through_date": "2026-08-31"},
+    )
+    schedules = client.get(
+        "/api/v1/recurring-transactions",
+        headers=AUTH_HEADERS,
+    )
+    accounts = client.get("/api/v1/accounts", headers=AUTH_HEADERS)
+
+    assert created.status_code == 201
+    assert first.json()["generated_count"] == 3
+    assert second.json()["generated_count"] == 0
+    assert schedules.json()[0]["is_active"] is False
+    assert schedules.json()[0]["last_generated_date"] == "2026-08-30"
+    assert accounts.json()[0]["balance"] == 47700
+
+
 def test_preferences_can_be_read_and_updated(api_context):
     client = api_context["client"]
     response = client.put(

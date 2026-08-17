@@ -140,6 +140,10 @@ class PostgresCursorAdapter:
         row = self.connection.execute("SELECT LASTVAL()").fetchone()
         return row[0]
 
+    @property
+    def rowcount(self):
+        return self.cursor.rowcount
+
     def fetchone(self):
         return self.cursor.fetchone()
 

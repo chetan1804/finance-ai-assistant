@@ -5,9 +5,12 @@ import { api, ApiUnauthorizedError, publicApi } from './api'
 import type {
   Account,
   AuthSession,
+  Budget,
   Category,
   ChatMessage,
   Preferences,
+  Goal,
+  RecurringTransaction,
   SecuritySession,
   Summary,
   Transaction,
@@ -52,6 +55,10 @@ function formatDateTime(value: string) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value))
+}
+
+function recurringHasEnded(item: RecurringTransaction) {
+  return Boolean(item.end_date && item.next_date > item.end_date)
 }
 
 function summaryPath(startDate: string, endDate: string) {
@@ -102,6 +109,9 @@ function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  const [budgets, setBudgets] = useState<Budget[]>([])
+  const [goals, setGoals] = useState<Goal[]>([])
+  const [recurring, setRecurring] = useState<RecurringTransaction[]>([])
   const [preferences, setPreferences] = useState(defaultPreferences)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -112,6 +122,16 @@ function App() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [privacyPassword, setPrivacyPassword] = useState('')
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
+  const [budgetDraft, setBudgetDraft] = useState({
+    category_id: '', amount: '', period: 'monthly', start_date: today(), end_date: today(),
+  })
+  const [goalDraft, setGoalDraft] = useState({
+    name: '', target_amount: '', current_amount: '0', target_date: '', priority: 'medium',
+  })
+  const [recurringDraft, setRecurringDraft] = useState({
+    account_id: '', category_id: '', transaction_type: 'expense', amount: '',
+    description: '', frequency: 'monthly', interval_count: '1', next_date: today(), end_date: '',
+  })
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -136,13 +156,19 @@ function App() {
     authToken: string,
     filters: { start: string; end: string },
   ) => {
-    const [nextSummary, nextTransactions, nextAccounts, nextCategories, nextPreferences, nextSessions] = await Promise.all([
+    await api(authToken, '/api/v1/recurring-transactions/process', {
+      method: 'POST', body: JSON.stringify({}),
+    })
+    const [nextSummary, nextTransactions, nextAccounts, nextCategories, nextPreferences, nextSessions, nextBudgets, nextGoals, nextRecurring] = await Promise.all([
       api<Summary>(authToken, summaryPath(filters.start, filters.end)),
       api<Transaction[]>(authToken, '/api/v1/transactions?limit=50'),
       api<Account[]>(authToken, '/api/v1/accounts'),
       api<Category[]>(authToken, '/api/v1/categories'),
       api<Preferences>(authToken, '/api/v1/preferences'),
       api<SecuritySession[]>(authToken, '/api/v1/auth/sessions'),
+      api<Budget[]>(authToken, '/api/v1/budgets'),
+      api<Goal[]>(authToken, '/api/v1/goals'),
+      api<RecurringTransaction[]>(authToken, '/api/v1/recurring-transactions'),
     ])
     setSummary(nextSummary)
     setTransactions(nextTransactions)
@@ -150,6 +176,9 @@ function App() {
     setCategories(nextCategories)
     setPreferences(nextPreferences)
     setSessions(nextSessions)
+    setBudgets(nextBudgets)
+    setGoals(nextGoals)
+    setRecurring(nextRecurring)
     setLastUpdated(`Updated ${new Intl.DateTimeFormat('en-IN', {
       hour: 'numeric', minute: '2-digit',
     }).format(new Date())}`)
@@ -245,6 +274,10 @@ function App() {
 
   const availableCategories = categories.filter(
     (category) => category.category_type === draft.transaction_type,
+  )
+  const expenseCategories = categories.filter((category) => category.category_type === 'expense')
+  const recurringCategories = categories.filter(
+    (category) => category.category_type === recurringDraft.transaction_type,
   )
 
   async function connect(event: FormEvent<HTMLFormElement>) {
@@ -399,6 +432,159 @@ function App() {
       notify('Transaction deleted and account balance updated.')
     } catch (error) {
       notify(messageFrom(error), true)
+    }
+  }
+
+  async function saveBudget(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      await authorizedApi<{ id: number }>('/api/v1/budgets', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...budgetDraft,
+          category_id: Number(budgetDraft.category_id),
+          amount: Number(budgetDraft.amount),
+        }),
+      })
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
+      setBudgetDraft({ ...budgetDraft, amount: '' })
+      notify('Budget created.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteBudget(budget: Budget) {
+    if (!globalThis.confirm(`Delete the ${budget.category} budget?`)) return
+    try {
+      await authorizedApi<null>(`/api/v1/budgets/${budget.id}`, { method: 'DELETE' })
+      setBudgets((current) => current.filter((item) => item.id !== budget.id))
+      notify('Budget deleted.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function saveGoal(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      await authorizedApi<{ id: number }>('/api/v1/goals', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...goalDraft,
+          target_amount: Number(goalDraft.target_amount),
+          current_amount: Number(goalDraft.current_amount),
+          target_date: goalDraft.target_date || null,
+          status: 'active',
+        }),
+      })
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
+      setGoalDraft({ ...goalDraft, name: '', target_amount: '', current_amount: '0', target_date: '' })
+      notify('Savings goal created.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteGoal(goal: Goal) {
+    if (!globalThis.confirm(`Delete the ${goal.name} goal?`)) return
+    try {
+      await authorizedApi<null>(`/api/v1/goals/${goal.id}`, { method: 'DELETE' })
+      setGoals((current) => current.filter((item) => item.id !== goal.id))
+      notify('Savings goal deleted.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function saveRecurring(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      await authorizedApi<{ id: number }>('/api/v1/recurring-transactions', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...recurringDraft,
+          account_id: Number(recurringDraft.account_id),
+          category_id: recurringDraft.category_id ? Number(recurringDraft.category_id) : null,
+          amount: Number(recurringDraft.amount),
+          interval_count: Number(recurringDraft.interval_count),
+          description: recurringDraft.description.trim() || null,
+          end_date: recurringDraft.end_date || null,
+          is_active: true,
+        }),
+      })
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
+      setRecurringDraft({ ...recurringDraft, amount: '', description: '' })
+      notify('Recurring transaction created.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function toggleRecurring(item: RecurringTransaction) {
+    if (recurringHasEnded(item)) {
+      notify('This schedule has reached its end date.', true)
+      return
+    }
+    try {
+      await authorizedApi<{ id: number }>(`/api/v1/recurring-transactions/${item.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          account_id: item.account_id,
+          category_id: item.category_id,
+          transaction_type: item.transaction_type,
+          amount: item.amount,
+          description: item.description,
+          frequency: item.frequency,
+          interval_count: item.interval_count,
+          next_date: item.next_date,
+          end_date: item.end_date,
+          merchant: item.merchant,
+          notes: item.notes,
+          is_active: !item.is_active,
+        }),
+      })
+      setRecurring((current) => current.map((entry) => (
+        entry.id === item.id ? { ...entry, is_active: !entry.is_active } : entry
+      )))
+      notify(item.is_active ? 'Recurring transaction paused.' : 'Recurring transaction resumed.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function deleteRecurring(item: RecurringTransaction) {
+    if (!globalThis.confirm(`Delete ${item.description || 'this recurring transaction'}?`)) return
+    try {
+      await authorizedApi<null>(`/api/v1/recurring-transactions/${item.id}`, { method: 'DELETE' })
+      setRecurring((current) => current.filter((entry) => entry.id !== item.id))
+      notify('Recurring transaction deleted.')
+    } catch (error) {
+      notify(messageFrom(error), true)
+    }
+  }
+
+  async function processRecurring() {
+    setBusy(true)
+    try {
+      const result = await authorizedApi<{ generated_count: number }>('/api/v1/recurring-transactions/process', {
+        method: 'POST', body: JSON.stringify({}),
+      })
+      await loadDashboard(tokenRef.current, { start: startDate, end: endDate })
+      notify(`${result.generated_count} scheduled transaction${result.generated_count === 1 ? '' : 's'} generated.`)
+    } catch (error) {
+      notify(messageFrom(error), true)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -617,6 +803,8 @@ function App() {
           <a className="brand" href="#overview" aria-label="Khata dashboard home"><span className="brand-mark small" aria-hidden="true">ख</span><span><strong>Khata</strong><small>Personal finance</small></span></a>
           <nav className="nav-list" aria-label="Dashboard navigation">
             <a className="nav-item active" href="#overview"><span aria-hidden="true">⌂</span> Overview</a>
+            <a className="nav-item" href="#planning"><span aria-hidden="true">◎</span> Planning</a>
+            <a className="nav-item" href="#recurring"><span aria-hidden="true">↻</span> Recurring</a>
             <a className="nav-item" href="#transactions"><span aria-hidden="true">↕</span> Transactions</a>
             <a className="nav-item" href="#accounts"><span aria-hidden="true">▣</span> Accounts</a>
             <a className="nav-item" href="#assistant"><span aria-hidden="true">✦</span> Assistant</a>
@@ -643,6 +831,55 @@ function App() {
             <div className="insight-grid">
               <article className="panel cashflow-panel"><div className="panel-heading"><div><p className="eyebrow">Cash flow</p><h3>Income vs spending</h3></div><span className="pill">{periodLabel}</span></div><div className="flow-chart" aria-label="Income and expense comparison"><div className="flow-row"><span>Income</span><div className="flow-track"><progress className="flow-bar income-bar" max="100" value={Math.max(2, ((summary?.income || 0) / chartMaximum) * 100)} /></div><strong>{formatMoney(summary?.income || 0, currency)}</strong></div><div className="flow-row"><span>Expenses</span><div className="flow-track"><progress className="flow-bar expense-bar" max="100" value={Math.max(2, ((summary?.expenses || 0) / chartMaximum) * 100)} /></div><strong>{formatMoney(summary?.expenses || 0, currency)}</strong></div></div><div className="insight-note">{summary && summary.savings < 0 ? `Spending exceeded income by ${formatMoney(Math.abs(summary.savings), currency)}.` : `You retained ${rate.toFixed(1)}% of income in this period.`}</div></article>
               <article className="panel category-panel"><div className="panel-heading"><div><p className="eyebrow">Spending mix</p><h3>Top categories</h3></div></div><div className="category-list">{topCategories.length ? topCategories.map(([name, total]) => <div className="category-row" key={name}><span>{name}</span><strong>{formatMoney(total, currency)}</strong><div className="category-track"><progress className="category-progress" max={topCategories[0][1]} value={total} /></div></div>) : <p className="empty-state">No expense data yet.</p>}</div></article>
+            </div>
+          </section>
+
+          <section id="planning" className="section-block" aria-labelledby="planning-title">
+            <div className="section-heading"><div><p className="eyebrow">Plan ahead</p><h2 id="planning-title">Budgets &amp; savings goals</h2></div></div>
+            <div className="planning-grid">
+              <article className="panel planning-panel">
+                <div className="panel-heading"><div><p className="eyebrow">Spending limits</p><h3>Budgets</h3></div></div>
+                <form className="compact-form" onSubmit={saveBudget}>
+                  <label>Expense category<select required value={budgetDraft.category_id} onChange={(event) => setBudgetDraft({ ...budgetDraft, category_id: event.target.value })}><option value="">Choose category</option>{expenseCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+                  <label>Limit<input type="number" min="0.01" step="0.01" required value={budgetDraft.amount} onChange={(event) => setBudgetDraft({ ...budgetDraft, amount: event.target.value })} /></label>
+                  <label>Period<select value={budgetDraft.period} onChange={(event) => setBudgetDraft({ ...budgetDraft, period: event.target.value })}><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option><option value="custom">Custom</option></select></label>
+                  <label>From<input type="date" required value={budgetDraft.start_date} onChange={(event) => setBudgetDraft({ ...budgetDraft, start_date: event.target.value })} /></label>
+                  <label>To<input type="date" required value={budgetDraft.end_date} onChange={(event) => setBudgetDraft({ ...budgetDraft, end_date: event.target.value })} /></label>
+                  <button className="primary-button" type="submit" disabled={busy}>Create budget</button>
+                </form>
+                <div className="plan-list">{budgets.length ? budgets.map((budget) => <div className="plan-row" key={budget.id}><div><strong>{budget.category}</strong><small>{formatMoney(budget.spent, currency)} of {formatMoney(budget.amount, currency)} · until {formatDate(budget.end_date)}</small><progress max="100" value={budget.percent_used} /></div><button className="row-action delete-action" type="button" aria-label={`Delete ${budget.category} budget`} onClick={() => void deleteBudget(budget)}>🗑</button></div>) : <p className="empty-state">No budgets yet.</p>}</div>
+              </article>
+              <article className="panel planning-panel">
+                <div className="panel-heading"><div><p className="eyebrow">Future funds</p><h3>Savings goals</h3></div></div>
+                <form className="compact-form" onSubmit={saveGoal}>
+                  <label>Goal name<input maxLength={100} required value={goalDraft.name} onChange={(event) => setGoalDraft({ ...goalDraft, name: event.target.value })} /></label>
+                  <label>Target<input type="number" min="0.01" step="0.01" required value={goalDraft.target_amount} onChange={(event) => setGoalDraft({ ...goalDraft, target_amount: event.target.value })} /></label>
+                  <label>Already saved<input type="number" min="0" step="0.01" required value={goalDraft.current_amount} onChange={(event) => setGoalDraft({ ...goalDraft, current_amount: event.target.value })} /></label>
+                  <label>Target date<input type="date" value={goalDraft.target_date} onChange={(event) => setGoalDraft({ ...goalDraft, target_date: event.target.value })} /></label>
+                  <label>Priority<select value={goalDraft.priority} onChange={(event) => setGoalDraft({ ...goalDraft, priority: event.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+                  <button className="primary-button" type="submit" disabled={busy}>Create goal</button>
+                </form>
+                <div className="plan-list">{goals.length ? goals.map((goal) => <div className="plan-row" key={goal.id}><div><strong>{goal.name}</strong><small>{formatMoney(goal.current_amount, currency)} of {formatMoney(goal.target_amount, currency)} · {goal.priority} priority</small><progress max="100" value={goal.percent_complete} /></div><button className="row-action delete-action" type="button" aria-label={`Delete ${goal.name} goal`} onClick={() => void deleteGoal(goal)}>🗑</button></div>) : <p className="empty-state">No savings goals yet.</p>}</div>
+              </article>
+            </div>
+          </section>
+
+          <section id="recurring" className="section-block" aria-labelledby="recurring-title">
+            <div className="section-heading"><div><p className="eyebrow">Automation</p><h2 id="recurring-title">Recurring transactions</h2></div><button className="secondary-button" type="button" disabled={busy} onClick={() => void processRecurring()}>Generate due transactions</button></div>
+            <div className="panel recurring-panel">
+              <form className="compact-form recurring-form" onSubmit={saveRecurring}>
+                <label>Account<select required value={recurringDraft.account_id} onChange={(event) => setRecurringDraft({ ...recurringDraft, account_id: event.target.value })}><option value="">Choose account</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+                <label>Type<select value={recurringDraft.transaction_type} onChange={(event) => setRecurringDraft({ ...recurringDraft, transaction_type: event.target.value, category_id: '' })}><option value="expense">Expense</option><option value="income">Income</option></select></label>
+                <label>Category<select value={recurringDraft.category_id} onChange={(event) => setRecurringDraft({ ...recurringDraft, category_id: event.target.value })}><option value="">No category</option>{recurringCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+                <label>Amount<input type="number" min="0.01" step="0.01" required value={recurringDraft.amount} onChange={(event) => setRecurringDraft({ ...recurringDraft, amount: event.target.value })} /></label>
+                <label>Description<input maxLength={500} value={recurringDraft.description} onChange={(event) => setRecurringDraft({ ...recurringDraft, description: event.target.value })} /></label>
+                <label>Frequency<select value={recurringDraft.frequency} onChange={(event) => setRecurringDraft({ ...recurringDraft, frequency: event.target.value })}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label>
+                <label>Every<input type="number" min="1" max="365" required value={recurringDraft.interval_count} onChange={(event) => setRecurringDraft({ ...recurringDraft, interval_count: event.target.value })} /></label>
+                <label>Next date<input type="date" required value={recurringDraft.next_date} onChange={(event) => setRecurringDraft({ ...recurringDraft, next_date: event.target.value })} /></label>
+                <label>End date<input type="date" value={recurringDraft.end_date} onChange={(event) => setRecurringDraft({ ...recurringDraft, end_date: event.target.value })} /></label>
+                <button className="primary-button" type="submit" disabled={busy}>Create schedule</button>
+              </form>
+              <div className="plan-list recurring-list">{recurring.length ? recurring.map((item) => <div className="plan-row" key={item.id}><div><strong>{item.description || `${item.transaction_type} schedule`}</strong><small>{formatMoney(item.amount, currency)} · every {item.interval_count > 1 ? `${item.interval_count} ` : ''}{item.frequency} · next {formatDate(item.next_date)}</small><span className={`status-label ${item.is_active ? 'active' : ''}`}>{item.is_active ? 'Active' : recurringHasEnded(item) ? 'Ended' : 'Paused'}</span></div><div className="row-actions">{!recurringHasEnded(item) && <button className="row-action" type="button" title={item.is_active ? 'Pause schedule' : 'Resume schedule'} aria-label={`${item.is_active ? 'Pause' : 'Resume'} ${item.description || 'schedule'}`} onClick={() => void toggleRecurring(item)}>{item.is_active ? 'Ⅱ' : '▶'}</button>}<button className="row-action delete-action" type="button" aria-label={`Delete ${item.description || 'schedule'}`} onClick={() => void deleteRecurring(item)}>🗑</button></div></div>) : <p className="empty-state">No recurring transactions yet.</p>}</div>
             </div>
           </section>
 

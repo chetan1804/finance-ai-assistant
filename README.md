@@ -167,6 +167,13 @@ Available endpoints:
 - `POST /api/v1/transactions`
 - `PUT /api/v1/transactions/{transaction_id}`
 - `DELETE /api/v1/transactions/{transaction_id}`
+- `GET|POST /api/v1/budgets`
+- `PUT|DELETE /api/v1/budgets/{budget_id}`
+- `GET|POST /api/v1/goals`
+- `PUT|DELETE /api/v1/goals/{goal_id}`
+- `GET|POST /api/v1/recurring-transactions`
+- `PUT|DELETE /api/v1/recurring-transactions/{recurring_id}`
+- `POST /api/v1/recurring-transactions/process`
 - `GET /api/v1/preferences`
 - `PUT /api/v1/preferences`
 - `POST /api/v1/chat`
@@ -179,6 +186,10 @@ Available endpoints:
 - Income, spending, savings, and savings-rate metrics
 - Cash-flow comparison and category breakdown
 - Secure transaction creation, editing, and deletion with balance reconciliation
+- Category budgets with date-scoped actual spending and progress
+- Savings goals with target, saved amount, priority, status, and progress
+- Daily, weekly, monthly, and yearly recurring income or expenses
+- Idempotent due-transaction generation with pause, resume, and end dates
 - Account balance cards
 - User preference editing
 - Password rotation and active-session management

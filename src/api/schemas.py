@@ -153,3 +153,65 @@ class CategoryResponse(StrictModel):
     name: str
     category_type: Literal["income", "expense"]
     parent_id: int | None
+
+
+class BudgetWrite(StrictModel):
+    category_id: int = Field(gt=0)
+    amount: float = Field(gt=0)
+    period: Literal["weekly", "monthly", "quarterly", "yearly", "custom"]
+    start_date: date
+    end_date: date
+
+
+class BudgetResponse(BudgetWrite):
+    id: int
+    category: str
+    spent: float
+    remaining: float
+    percent_used: float
+
+
+class GoalWrite(StrictModel):
+    name: str = Field(min_length=1, max_length=100)
+    target_amount: float = Field(gt=0)
+    current_amount: float = Field(default=0, ge=0)
+    target_date: date | None = None
+    priority: Literal["low", "medium", "high"] = "medium"
+    status: Literal["active", "completed", "paused"] = "active"
+
+
+class GoalResponse(GoalWrite):
+    id: int
+    remaining: float
+    percent_complete: float
+
+
+class RecurringTransactionWrite(StrictModel):
+    account_id: int = Field(gt=0)
+    category_id: int | None = Field(default=None, gt=0)
+    transaction_type: Literal["income", "expense"]
+    amount: float = Field(gt=0)
+    description: str | None = Field(default=None, max_length=500)
+    frequency: Literal["daily", "weekly", "monthly", "yearly"]
+    interval_count: int = Field(default=1, ge=1, le=365)
+    next_date: date
+    end_date: date | None = None
+    merchant: str | None = Field(default=None, max_length=255)
+    notes: str | None = Field(default=None, max_length=1000)
+    is_active: bool = True
+
+
+class RecurringTransactionResponse(RecurringTransactionWrite):
+    id: int
+    last_generated_date: date | None
+    account: str
+    category: str | None
+
+
+class RecurringProcessRequest(StrictModel):
+    through_date: date | None = None
+
+
+class RecurringProcessResponse(StrictModel):
+    generated_count: int
+    transaction_ids: list[int]

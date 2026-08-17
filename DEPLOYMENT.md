@@ -107,6 +107,12 @@ publishes the application below a stripped URL prefix.
 The application applies pending versioned migrations for the selected database
 before startup. Users and their first accounts are created through registration.
 
+Recurring transactions are materialized lazily when the React dashboard loads
+or when an authenticated client calls `POST /api/v1/recurring-transactions/process`.
+The operation locks due schedules and records a unique schedule/date pair, so it
+is safe to retry. For users who may not open the dashboard regularly, invoke the
+endpoint from a trusted daily scheduler using a dedicated authenticated client.
+
 Check a mounted database before deployment with:
 
 ```bash

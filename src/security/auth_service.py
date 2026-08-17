@@ -458,10 +458,22 @@ class AuthService:
                 ),
                 "transactions": (
                     "SELECT id, account_id, category_id, transaction_type, amount, "
-                    "description, transaction_date, merchant, notes, created_at, updated_at "
+                    "description, transaction_date, merchant, notes, recurring_transaction_id, "
+                    "scheduled_for, created_at, updated_at "
                     "FROM transactions WHERE user_id = ? ORDER BY id",
                     ("id", "account_id", "category_id", "transaction_type", "amount",
                      "description", "transaction_date", "merchant", "notes",
+                     "recurring_transaction_id", "scheduled_for",
+                     "created_at", "updated_at"),
+                ),
+                "recurring_transactions": (
+                    "SELECT id, account_id, category_id, transaction_type, amount, "
+                    "description, merchant, notes, frequency, interval_count, next_date, "
+                    "end_date, is_active, last_generated_date, created_at, updated_at "
+                    "FROM recurring_transactions WHERE user_id = ? ORDER BY id",
+                    ("id", "account_id", "category_id", "transaction_type", "amount",
+                     "description", "merchant", "notes", "frequency", "interval_count",
+                     "next_date", "end_date", "is_active", "last_generated_date",
                      "created_at", "updated_at"),
                 ),
                 "budgets": (
@@ -482,7 +494,7 @@ class AuthService:
                 rows = connection.execute(query, (user_id,)).fetchall()
                 collections[name] = self._records(rows, columns)
             return {
-                "export_version": 1,
+                "export_version": 2,
                 "exported_at": datetime.now(timezone.utc).isoformat(),
                 "profile": self._records(
                     [profile],
@@ -510,6 +522,7 @@ class AuthService:
                 "auth_sessions",
                 "user_credentials",
                 "transactions",
+                "recurring_transactions",
                 "budgets",
                 "financial_goals",
                 "user_preferences",

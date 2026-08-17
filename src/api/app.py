@@ -38,6 +38,14 @@ from src.api.schemas import (
     TransactionCreated,
     TransactionResponse,
     VersionResponse,
+    BudgetWrite,
+    BudgetResponse,
+    GoalWrite,
+    GoalResponse,
+    RecurringTransactionWrite,
+    RecurringTransactionResponse,
+    RecurringProcessRequest,
+    RecurringProcessResponse,
 )
 from src.database.db import initialize_database
 from src.database.finance_service import FinanceService
@@ -524,6 +532,155 @@ def create_app(
         user_id: int = Depends(current_user),
     ):
         service.delete_transaction(user_id, transaction_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.get("/api/v1/budgets", response_model=list[BudgetResponse])
+    def budgets(user_id: int = Depends(current_user)):
+        results = []
+        for row in service.get_budgets(user_id):
+            amount = float(row[3])
+            spent = float(row[7])
+            results.append({
+                "id": row[0], "category_id": row[1], "category": row[2],
+                "amount": amount, "period": row[4], "start_date": row[5],
+                "end_date": row[6], "spent": spent,
+                "remaining": max(amount - spent, 0),
+                "percent_used": min(spent / amount * 100, 100),
+            })
+        return results
+
+    @application.post(
+        "/api/v1/budgets",
+        response_model=TransactionCreated,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_budget(payload: BudgetWrite, user_id: int = Depends(current_user)):
+        budget_id = service.create_budget(
+            user_id, payload.category_id, payload.amount, payload.period,
+            payload.start_date.isoformat(), payload.end_date.isoformat(),
+        )
+        return {"id": budget_id}
+
+    @application.put("/api/v1/budgets/{budget_id}", response_model=TransactionCreated)
+    def update_budget(budget_id: int, payload: BudgetWrite, user_id: int = Depends(current_user)):
+        service.update_budget(
+            user_id, budget_id, payload.category_id, payload.amount, payload.period,
+            payload.start_date.isoformat(), payload.end_date.isoformat(),
+        )
+        return {"id": budget_id}
+
+    @application.delete("/api/v1/budgets/{budget_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_budget(budget_id: int, user_id: int = Depends(current_user)):
+        service.delete_budget(user_id, budget_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.get("/api/v1/goals", response_model=list[GoalResponse])
+    def goals(user_id: int = Depends(current_user)):
+        results = []
+        for row in service.get_goals(user_id):
+            target = float(row[2])
+            current = float(row[3])
+            results.append({
+                "id": row[0], "name": row[1], "target_amount": target,
+                "current_amount": current, "target_date": row[4],
+                "priority": row[5], "status": row[6],
+                "remaining": max(target - current, 0),
+                "percent_complete": min(current / target * 100, 100),
+            })
+        return results
+
+    @application.post(
+        "/api/v1/goals",
+        response_model=TransactionCreated,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_goal(payload: GoalWrite, user_id: int = Depends(current_user)):
+        goal_id = service.create_goal(
+            user_id, payload.name, payload.target_amount, payload.current_amount,
+            payload.target_date.isoformat() if payload.target_date else None,
+            payload.priority, payload.status,
+        )
+        return {"id": goal_id}
+
+    @application.put("/api/v1/goals/{goal_id}", response_model=TransactionCreated)
+    def update_goal(goal_id: int, payload: GoalWrite, user_id: int = Depends(current_user)):
+        service.update_goal(
+            user_id, goal_id, payload.name, payload.target_amount,
+            payload.current_amount,
+            payload.target_date.isoformat() if payload.target_date else None,
+            payload.priority, payload.status,
+        )
+        return {"id": goal_id}
+
+    @application.delete("/api/v1/goals/{goal_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_goal(goal_id: int, user_id: int = Depends(current_user)):
+        service.delete_goal(user_id, goal_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.get(
+        "/api/v1/recurring-transactions",
+        response_model=list[RecurringTransactionResponse],
+    )
+    def recurring_transactions(user_id: int = Depends(current_user)):
+        return [
+            {
+                "id": row[0], "account_id": row[1], "category_id": row[2],
+                "transaction_type": row[3], "amount": float(row[4]),
+                "description": row[5], "frequency": row[6],
+                "interval_count": row[7], "next_date": row[8],
+                "end_date": row[9], "is_active": bool(row[10]),
+                "last_generated_date": row[11], "merchant": row[12],
+                "notes": row[13], "account": row[14], "category": row[15],
+            }
+            for row in service.get_recurring_transactions(user_id)
+        ]
+
+    @application.post(
+        "/api/v1/recurring-transactions/process",
+        response_model=RecurringProcessResponse,
+    )
+    def process_recurring(payload: RecurringProcessRequest, user_id: int = Depends(current_user)):
+        transaction_ids = service.process_recurring_transactions(
+            user_id,
+            payload.through_date.isoformat() if payload.through_date else None,
+        )
+        return {"generated_count": len(transaction_ids), "transaction_ids": transaction_ids}
+
+    @application.post(
+        "/api/v1/recurring-transactions",
+        response_model=TransactionCreated,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_recurring(payload: RecurringTransactionWrite, user_id: int = Depends(current_user)):
+        recurring_id = service.create_recurring_transaction(
+            user_id, payload.account_id, payload.category_id,
+            payload.transaction_type, payload.amount, payload.description,
+            payload.frequency, payload.next_date.isoformat(), payload.interval_count,
+            payload.end_date.isoformat() if payload.end_date else None,
+            payload.merchant, payload.notes,
+        )
+        return {"id": recurring_id}
+
+    @application.put(
+        "/api/v1/recurring-transactions/{recurring_id}",
+        response_model=TransactionCreated,
+    )
+    def update_recurring(recurring_id: int, payload: RecurringTransactionWrite, user_id: int = Depends(current_user)):
+        service.update_recurring_transaction(
+            user_id, recurring_id, payload.account_id, payload.category_id,
+            payload.transaction_type, payload.amount, payload.description,
+            payload.frequency, payload.next_date.isoformat(), payload.interval_count,
+            payload.end_date.isoformat() if payload.end_date else None,
+            payload.merchant, payload.notes, payload.is_active,
+        )
+        return {"id": recurring_id}
+
+    @application.delete(
+        "/api/v1/recurring-transactions/{recurring_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def delete_recurring(recurring_id: int, user_id: int = Depends(current_user)):
+        service.delete_recurring_transaction(user_id, recurring_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @application.get(
