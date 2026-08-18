@@ -26,14 +26,14 @@ class VersionResponse(StrictModel):
 class RegisterRequest(StrictModel):
     name: str = Field(min_length=1, max_length=100)
     email: str = Field(min_length=3, max_length=254)
-    password: str = Field(min_length=15, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
     currency: str = Field(default="INR", min_length=3, max_length=3)
     account_name: str = Field(default="Main account", min_length=1, max_length=100)
 
 
 class LoginRequest(StrictModel):
     email: str = Field(min_length=3, max_length=254)
-    password: str = Field(min_length=12, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
 
 
 class RefreshRequest(StrictModel):
@@ -50,7 +50,7 @@ class PasswordConfirmation(StrictModel):
 
 class PasswordChangeRequest(StrictModel):
     current_password: str = Field(min_length=1, max_length=128)
-    new_password: str = Field(min_length=15, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class DeleteAccountRequest(StrictModel):

@@ -1,0 +1,4 @@
+{$ARTHNIVO_SITE_ADDRESS} {
+    encode zstd gzip
+    reverse_proxy arthnivo:8000
+}

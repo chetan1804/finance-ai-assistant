@@ -19,15 +19,21 @@ ACCESS_TOKEN_MINUTES = 30
 REFRESH_TOKEN_DAYS = 30
 MAX_FAILED_LOGIN_ATTEMPTS = 5
 ACCOUNT_LOCK_MINUTES = 15
-MIN_PASSWORD_LENGTH = 15
+MIN_PASSWORD_LENGTH = 8
 COMMON_PASSWORDS = {
+    "12345678",
     "123456789012345",
+    "admin123",
     "adminadminadmin",
     "financeassistant",
+    "letmein",
     "letmeinletmein",
+    "password",
     "password123456",
     "passwordpassword",
+    "qwerty123",
     "qwertyqwerty123",
+    "welcome1",
     "welcome1234567",
 }
 DEFAULT_CATEGORIES = (

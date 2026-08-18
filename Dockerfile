@@ -49,6 +49,6 @@ USER finance
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD python -c "import os, urllib.request; request=urllib.request.Request('http://127.0.0.1:' + os.getenv('PORT', '8000') + '/ready', headers={'X-Forwarded-Proto':'https'}); urllib.request.urlopen(request, timeout=3)"
+    CMD python -c "import os, urllib.request; host=os.getenv('FINANCE_ALLOWED_HOSTS', 'localhost').split(',')[0].strip(); request=urllib.request.Request('http://127.0.0.1:' + os.getenv('PORT', '8000') + '/ready', headers={'Host':host, 'X-Forwarded-Proto':'https'}); urllib.request.urlopen(request, timeout=3)"
 
 CMD ["sh", "-c", "python -m uvicorn src.api.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --proxy-headers --forwarded-allow-ips \"${FINANCE_FORWARDED_ALLOW_IPS:-127.0.0.1}\""]

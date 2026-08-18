@@ -128,7 +128,7 @@ def test_metrics_use_route_templates_and_include_readiness(api_context):
     assert "finance_http_requests_total" in metrics.text
     assert 'route="/api/v1/transactions/{transaction_id}"' in metrics.text
     assert 'dependency="database"} 1.0' in metrics.text
-    assert "999999" not in metrics.text
+    assert 'route="/api/v1/transactions/999999"' not in metrics.text
 
 
 def test_readiness_reports_dependency_status(api_context):

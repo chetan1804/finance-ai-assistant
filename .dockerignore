@@ -9,6 +9,8 @@ __pycache__
 .env
 .env.*
 !.env.example
+lightsail.env
+.lightsail
 data
 logs
 notebooks

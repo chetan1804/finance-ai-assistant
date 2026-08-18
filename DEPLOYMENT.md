@@ -6,6 +6,9 @@ the Python runtime image. Finance, authentication data, and LangGraph
 checkpoints can use PostgreSQL. Local and single-instance deployments retain
 SQLite as the default.
 
+For the USD 12 single-instance AWS Lightsail workflow, including self-hosted
+PostgreSQL and Redis, see `LIGHTSAIL_DEPLOYMENT.md`.
+
 ## Production requirements
 
 - Python 3.12 or the provided Docker image

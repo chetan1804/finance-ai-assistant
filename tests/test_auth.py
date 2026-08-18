@@ -154,7 +154,7 @@ def test_registration_rejects_short_and_common_passwords(tmp_path):
 
     short = client.post(
         "/api/v1/auth/register",
-        json={**base, "password": "too-short"},
+        json={**base, "password": "short7!"},
     )
     common = client.post(
         "/api/v1/auth/register",
@@ -164,6 +164,24 @@ def test_registration_rejects_short_and_common_passwords(tmp_path):
     assert short.status_code == 422
     assert common.status_code == 422
     assert "less common" in common.json()["detail"]
+
+
+def test_registration_and_login_accept_eight_character_password(tmp_path):
+    client, _ = auth_client(tmp_path)
+    payload = {
+        "name": "Asha",
+        "email": "asha@example.com",
+        "password": "Safe8!xy",
+    }
+
+    registered = client.post("/api/v1/auth/register", json=payload)
+    logged_in = client.post(
+        "/api/v1/auth/login",
+        json={"email": payload["email"], "password": payload["password"]},
+    )
+
+    assert registered.status_code == 201
+    assert logged_in.status_code == 200
 
 
 def test_failed_logins_lock_the_account_and_success_resets_counter(tmp_path):
