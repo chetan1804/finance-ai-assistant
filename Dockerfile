@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npm run build
 
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 ARG FINANCE_RELEASE_VERSION=development
 ARG FINANCE_COMMIT_SHA=unknown
